@@ -122,6 +122,7 @@ class MakersGun :
         self .bricks =[]
         self .welding_tool =None 
         self .pistol =None 
+        self .thruster_icon =None
 
         self .icon =None 
         self .welding_icon =None 
@@ -138,6 +139,9 @@ class MakersGun :
             pistol_path =os .path .join (base ,'pistol.png')
             if os .path .exists (pistol_path ):
                 self .pistol_icon =pygame .image .load (pistol_path ).convert_alpha ()
+            thruster_path =os .path .join (base ,'thruster.png')
+            if os .path .exists (thruster_path ):
+                self .thruster_icon =pygame .image .load (thruster_path ).convert_alpha ()
         except Exception :
             self .icon =None 
             self .welding_icon =None 
@@ -188,6 +192,19 @@ class MakersGun :
 
     def spawn_pistol (self ,world_pos ):
         self .pistol ={'pos':pygame .math .Vector2 (world_pos ),'held':False }
+
+    def spawn_thruster(self, world_pos):
+        """Spawn a thruster object into the world (appended to bricks so it
+        participates in collisions and can be welded by the welding tool).
+        """
+        try :
+            from src .thruster import Thruster
+            t =Thruster (world_pos ,icon =self .thruster_icon )
+            # put thrusters into the bricks list so existing collision/welding
+            # code will treat them like other spawned objects
+            self .bricks .append (t )
+        except Exception :
+            pass
 
     def pickup_pistol (self ):
         if self .pistol :
@@ -277,7 +294,7 @@ class MakersGun :
                         sw ,sh =800 ,600 
 
 
-                    items =['Brick','Wielding Tool','Pistol','NPC']
+                    items =['Brick','Wielding Tool','Pistol','Thruster','NPC']
 
                     menu_w =max (300 ,int (sw *0.75 ))
                     menu_h =max (200 ,int (sh *0.6 ))
@@ -352,6 +369,10 @@ class MakersGun :
                     self .spawn_pistol (pos )
                     consumed =True 
                     return consumed 
+                elif self .menu_selected =='Thruster':
+                    self .spawn_thruster (pos )
+                    consumed =True 
+                    return consumed 
                 elif self .menu_selected == 'NPC':
                     try:
                         px, py = pos
@@ -396,6 +417,8 @@ class MakersGun :
                     self .spawn_welding_tool (pos )
                 elif self .menu_selected =='Pistol':
                     self .spawn_pistol (pos )
+                elif self .menu_selected =='Thruster':
+                    self .spawn_thruster (pos )
                 else :
                     self .spawn_brick (pos )
                 consumed =True 
@@ -494,6 +517,19 @@ class MakersGun :
                 except Exception :
                     self .welding_tool ['pos']=pygame .math .Vector2 (pygame .mouse .get_pos ())
 
+            # Thruster effects: if any spawned bricks implement an apply_thrust
+            # method (i.e. thrusters), call it so welded objects receive forces.
+            try :
+                if hasattr (self ,'_welding_tool_obj')and self ._welding_tool_obj is not None :
+                    for b in list (self .bricks ):
+                        try :
+                            if hasattr (b ,'apply_thrust'):
+                                b .apply_thrust (dt ,welding_tool =self ._welding_tool_obj ,npcs =npcs ,bricks =self .bricks )
+                        except Exception :
+                            pass
+            except Exception :
+                pass
+
 
         if self .pistol :
             try :
@@ -577,7 +613,7 @@ class MakersGun :
             except Exception :
                 sw ,sh =800 ,600 
 
-            items =['Brick','Wielding Tool','Pistol','NPC']
+            items =['Brick','Wielding Tool','Pistol','Thruster','NPC']
 
             menu_w =max (300 ,int (sw *0.75 ))
             menu_h =max (200 ,int (sh *0.6 ))
@@ -613,6 +649,8 @@ class MakersGun :
                     surf .blit (pygame .transform .scale (self .welding_icon ,(preview_size ,preview_size )),preview_rect )
                 elif name =='Pistol'and self .pistol_icon is not None :
                     surf .blit (pygame .transform .scale (self .pistol_icon ,(preview_size ,preview_size )),preview_rect )
+                elif name =='Thruster'and self .thruster_icon is not None :
+                    surf .blit (pygame .transform .scale (self .thruster_icon ,(preview_size ,preview_size )),preview_rect )
                 elif name =='NPC':
                     # draw a simple humanoid preview (head + torso)
                     cx = preview_rect.centerx
@@ -712,6 +750,14 @@ class MakersGun :
                         inner = torso.inflate(-1, -1)
                         pygame.draw.rect(surf, (54,160,60), inner)
                     except Exception:
+                        pygame .draw .rect (surf ,(30 ,10 ,10 ),pr )
+                        inner =pr .inflate (-2 ,-2 )
+                        pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )
+                elif self .menu_selected == 'Thruster' and self .thruster_icon is not None :
+                    try :
+                        img =pygame .transform .scale (self .thruster_icon ,(ps ,ps ))
+                        surf .blit (img ,(pr .x ,pr .y ))
+                    except Exception :
                         pygame .draw .rect (surf ,(30 ,10 ,10 ),pr )
                         inner =pr .inflate (-2 ,-2 )
                         pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )
