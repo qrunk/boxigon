@@ -13,11 +13,11 @@ class Fiddle :
         self .dragging =False 
         self .target =None 
         self .offset =pygame .math .Vector2 (0 ,0 )
+        
 
     def handle_event (self ,event ,npcs ):
         if event .type ==pygame .MOUSEBUTTONDOWN :
             if event .button ==1 :
-
 
                 pos =scaling .to_world (event .pos )
 
@@ -59,3 +59,5 @@ class Fiddle :
             npc ,idx =self .target 
             p =npc .particles [idx ]
             pygame .draw .circle (surf ,(255 ,120 ,80 ),(int (p .pos .x ),int (p .pos .y )),8 )
+
+        

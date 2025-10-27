@@ -81,6 +81,19 @@ class NPC :
 
         self .cut_particles =set ()
 
+        # Standing / animation support
+        # Store the rest local offsets relative to the torso center
+        try :
+            center =self .particles [2 ].pos .copy ()
+        except Exception :
+            center =pygame .math .Vector2 (x ,y )
+        self .rest_local =[(p .pos -center ).copy () for p in self .particles ]
+
+        # When True the NPC will attempt to maintain an upright pose using
+        # gentle positional springs toward the rest_local offsets. When False
+        # the NPC will simply be driven by gravity/constraints and collapse.
+        self .stand_enabled =True
+
     def apply_global_force (self ,f ):
         for p in self .particles :
             p .apply_force (f )
@@ -106,6 +119,36 @@ class NPC :
 
         for p in self .particles :
             p .update (dt )
+
+
+        # If standing behaviour is enabled, softly nudge particles toward
+        # their rest offsets relative to the torso center so the NPC will
+        # attempt to stand upright instead of simply collapsing on the floor.
+        if getattr (self ,'stand_enabled',False ):
+            try :
+                center =self .particles [2 ].pos
+            except Exception :
+                center =self .particles [0 ].pos
+            # spring strength (per second). tuned to be gentle but effective
+            k =6.0
+            # apply a positional correction scaled by dt
+            corr =min (1.0 ,k *dt )
+            for i ,p in enumerate (self .particles ):
+                if i in self .cut_particles :
+                    continue
+                try :
+                    target =center +self .rest_local [i ]
+                except Exception :
+                    continue
+                diff =target -p .pos
+                # If the particle is effectively on the floor, avoid applying
+                # horizontal standing corrections (this can cause slow drift).
+                if fy is not None :
+                    ground_y =fy -(self .size /2 )
+                    # small tolerance
+                    if p .pos .y >=ground_y -1.0 :
+                        diff .x =0
+                p .pos +=diff *corr
 
 
         for _ in range (5 ):
@@ -136,6 +179,34 @@ class NPC :
                     vel .x *=max (0.0 ,friction )
 
                     p .prev =p .pos -vel 
+                    # Extra damping: strongly remove horizontal velocity for
+                    # grounded particles to prevent autonomous sliding.
+                    try :
+                        p .prev .x =p .pos .x
+                    except Exception :
+                        pass
+
+        def drop_dead (self ):
+            """Disable standing behaviour and give the NPC a downward impulse
+            so it collapses to the ground.
+            """
+            try :
+                self .stand_enabled =False
+            except Exception :
+                pass
+
+            # give a short downward velocity impulse so the NPC visibly falls
+            try :
+                # stronger downward impulse so the NPC falls quickly to the floor
+                impulse_y =300
+                for p in self .particles :
+                    # set previous position so velocity is downward (larger value)
+                    p .prev =p .pos -pygame .math .Vector2 (0 ,impulse_y )
+                # also nudge the particles a little bit downward immediately
+                for p in self .particles :
+                    p .pos +=pygame .math .Vector2 (0 ,8 )
+            except Exception :
+                pass
 
     def apply_bullet_hit (self ,pos ):
         """Apply bullet damage at world-space position pos.

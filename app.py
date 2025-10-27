@@ -62,6 +62,9 @@ def main ():
                 hud_font =pygame .font .SysFont ('Arial',fs )
 
 
+            # Default ordering: let MakersGun handle the event first (spawn/menu
+            # logic and object dragging). If it doesn't consume the event, allow
+            # the Fiddle (direct NPC particle dragging) to handle it.
             consumed =makersgun .handle_event (event ,npcs )
             if not consumed :
                 fiddle .handle_event (event ,npcs )

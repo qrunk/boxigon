@@ -9,7 +9,7 @@ class Baseplate :
     Includes a friction coefficient to reduce sliding.
     """
 
-    def __init__ (self ,width ,height ,y =500 ,color =(80 ,80 ,90 ),friction =0.35 ):
+    def __init__ (self ,width ,height ,y =500 ,color =(80 ,80 ,90 ),friction =0.12 ):
         self .width =width 
         self .height =height 
         self .y =y 
