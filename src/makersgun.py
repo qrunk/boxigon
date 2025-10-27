@@ -1,0 +1,656 @@
+import os 
+import pygame 
+from src import scaling 
+from src .npc import Particle 
+
+
+class Brick :
+    """A simple square 'lego-like' brick backed by a single Verlet particle.
+
+    This is a lightweight object (single particle) so it behaves like a
+    point with a drawn square. It supports gravity and simple floor collision.
+    """
+
+    def __init__ (self ,pos ,size =40 ,mass =1.0 ,color =(180 ,30 ,30 )):
+        self .p =Particle (pos ,mass =mass )
+        self .size =size 
+        self .color =color 
+        self .outline =(30 ,10 ,10 )
+
+    def apply_force (self ,f ):
+        self .p .apply_force (f )
+
+    def update (self ,dt ,floor_y =None ,other_bricks =None ):
+
+        gravity =pygame .math .Vector2 (0 ,900 )
+        self .p .apply_force (gravity *self .p .mass )
+        self .p .update (dt )
+
+
+        if floor_y is not None :
+            if hasattr (floor_y ,'get_floor_y'):
+                fy =floor_y .get_floor_y ()
+            else :
+                fy =floor_y 
+            if fy is not None and self .p .pos .y >fy -(self .size /2 ):
+                self .p .pos .y =fy -(self .size /2 )
+                if hasattr (floor_y ,'get_friction'):
+                    friction =floor_y .get_friction ()
+                else :
+                    friction =0.35 
+
+                vel =self .p .pos -self .p .prev 
+                vel .y =0 
+                vel .x *=friction 
+                self .p .prev =self .p .pos -vel 
+
+
+        if other_bricks :
+            for other in other_bricks :
+                if other !=self :
+
+                    diff =self .p .pos -other .p .pos 
+                    dist =diff .length ()
+                    min_dist =(self .size +other .size )/2 
+
+                    if dist <min_dist and dist >0 :
+
+                        norm =diff /dist 
+
+                        overlap =min_dist -dist 
+
+                        total_mass =self .p .mass +other .p .mass 
+                        self_ratio =other .p .mass /total_mass 
+                        other_ratio =self .p .mass /total_mass 
+
+
+                        self .p .pos +=norm *overlap *self_ratio 
+
+
+                        self_vel =self .p .pos -self .p .prev 
+                        other_vel =other .p .pos -other .p .prev 
+                        rel_vel =self_vel -other_vel 
+                        vel_along_normal =rel_vel .dot (norm )
+
+
+                        if vel_along_normal <0 :
+                            restitution =0.3 
+                            j =-(1 +restitution )*vel_along_normal 
+                            j /=1 /self .p .mass +1 /other .p .mass 
+
+                            impulse =norm *j 
+
+                            self .p .prev =self .p .pos -(self_vel +(impulse /self .p .mass ))
+                            other .p .prev =other .p .pos -(other_vel -(impulse /other .p .mass ))
+
+    def draw (self ,surf ):
+        center =scaling .to_screen_vec (self .p .pos )
+        s =scaling .to_screen_length (self .size )
+        rect =pygame .Rect (0 ,0 ,int (s ),int (s ))
+        rect .center =(int (center .x ),int (center .y ))
+        pygame .draw .rect (surf ,self .outline ,rect )
+        inner =rect .inflate (-max (2 ,scaling .to_screen_length (3 )),-max (2 ,scaling .to_screen_length (3 )))
+        pygame .draw .rect (surf ,self .color ,inner )
+
+
+class MakersGun :
+    """Attach to mouse cursor, show spawn menu, spawn bricks on left click,
+    pick up/move objects on right click.
+
+    Methods:
+        handle_event(event, npcs) -> bool: returns True if event consumed
+        update(dt, floor=None)
+        draw(surf)
+    """
+
+    def __init__ (self ):
+        self .target =None 
+        self .offset =pygame .math .Vector2 (0 ,0 )
+        self .dragging =False 
+
+        self .equipped =False 
+
+        self .menu_open =False 
+
+        self .menu_selected =None 
+
+        try :
+            self ._prev_cursor_visible =pygame .mouse .get_visible ()
+        except Exception :
+            self ._prev_cursor_visible =True 
+        self .bricks =[]
+        self .welding_tool =None 
+        self .pistol =None 
+
+        self .icon =None 
+        self .welding_icon =None 
+        self .pistol_icon =None 
+        try :
+            base =os .path .join (os .path .dirname (__file__ ),'assets')
+
+            path =os .path .join (base ,'makergun.png')
+            if os .path .exists (path ):
+                self .icon =pygame .image .load (path ).convert_alpha ()
+            weld_path =os .path .join (base ,'weldingtool.png')
+            if os .path .exists (weld_path ):
+                self .welding_icon =pygame .image .load (weld_path ).convert_alpha ()
+            pistol_path =os .path .join (base ,'pistol.png')
+            if os .path .exists (pistol_path ):
+                self .pistol_icon =pygame .image .load (pistol_path ).convert_alpha ()
+        except Exception :
+            self .icon =None 
+            self .welding_icon =None 
+
+
+        self .menu_w =96 
+        self .menu_h =40 
+    def pickup_welding_tool (self ):
+        if self .welding_tool :
+            self .welding_tool ['held']=True 
+
+    def drop_welding_tool (self ):
+        if self .welding_tool :
+            self .welding_tool ['held']=False 
+        return 
+
+    def equip (self ):
+        """Equip the makers gun (attach to cursor)."""
+        if not self .equipped :
+            self .equipped =True 
+
+            try :
+                self ._prev_cursor_visible =pygame .mouse .get_visible ()
+                pygame .mouse .set_visible (False )
+            except Exception :
+                pass 
+
+    def drop (self ):
+        """Drop / unequip the makers gun and cancel any dragging."""
+        if self .equipped :
+            self .equipped =False 
+            self .dragging =False 
+            self .target =None 
+
+            try :
+                pygame .mouse .set_visible (self ._prev_cursor_visible )
+            except Exception :
+                pass 
+
+
+    def spawn_brick (self ,world_pos ):
+        b =Brick (world_pos ,size =40 )
+        self .bricks .append (b )
+
+    def spawn_welding_tool (self ,world_pos ):
+
+        self .welding_tool ={'pos':pygame .math .Vector2 (world_pos ),'held':False }
+
+    def spawn_pistol (self ,world_pos ):
+        self .pistol ={'pos':pygame .math .Vector2 (world_pos ),'held':False }
+
+    def pickup_pistol (self ):
+        if self .pistol :
+            self .pistol ['held']=True 
+
+    def drop_pistol (self ):
+        if self .pistol :
+            self .pistol ['held']=False 
+
+    def open_menu (self ):
+        """Open the spawn menu (centered). Restores the OS cursor so the
+        user can click items. We remember previous cursor visibility to
+        restore on close.
+        """
+        if not self .menu_open :
+            try :
+                self ._prev_cursor_visible =pygame .mouse .get_visible ()
+                pygame .mouse .set_visible (True )
+            except Exception :
+                pass 
+            self .menu_open =True 
+
+    def close_menu (self ):
+        """Close the spawn menu and restore previous cursor visibility."""
+        if self .menu_open :
+            self .menu_open =False 
+            try :
+                pygame .mouse .set_visible (self ._prev_cursor_visible )
+            except Exception :
+                pass 
+
+    def clear_selection (self ):
+        """Clear any previously selected menu item (stop repeated spawning)."""
+        self .menu_selected =None 
+
+    def toggle_menu (self ):
+        """Toggle the spawn menu open/closed."""
+        if self .menu_open :
+            self .close_menu ()
+        else :
+            self .open_menu ()
+
+    def find_nearest_moveable (self ,world_pos ,npcs ,max_dist =80 ):
+
+        best =None 
+        best_d =max_dist 
+        v =pygame .math .Vector2 (world_pos )
+
+
+        for b in self .bricks :
+            d =(b .p .pos -v ).length ()
+            if d <best_d :
+                best_d =d 
+                best =('brick',b )
+
+
+        if best_d >max_dist *0.5 :
+            for npc in npcs :
+                try :
+                    p =npc .particles [2 ].pos 
+                except Exception :
+                    try :
+                        p =npc .particles [0 ].pos 
+                    except Exception :
+                        continue 
+                d =(p -v ).length ()
+                if d <best_d :
+                    best_d =d 
+                    best =('npc',npc )
+
+        return best 
+
+    def handle_event (self ,event ,npcs ):
+        """Return True if event consumed (so caller shouldn't forward to Fiddle)."""
+        consumed =False 
+
+
+        if self .menu_open :
+            if event .type ==pygame .MOUSEBUTTONDOWN :
+                if event .button ==1 :
+                    mx ,my =event .pos 
+
+                    try :
+                        surf =pygame .display .get_surface ()
+                        sw ,sh =surf .get_size ()
+                    except Exception :
+                        sw ,sh =800 ,600 
+
+
+                    items =['Brick','Wielding Tool','Pistol']
+
+                    menu_w =max (300 ,int (sw *0.75 ))
+                    menu_h =max (200 ,int (sh *0.6 ))
+
+                    menu_w =min (menu_w ,sw -80 )
+                    menu_h =min (menu_h ,sh -120 )
+                    menu_x =(sw -menu_w )//2 
+                    menu_y =(sh -menu_h )//2 
+
+                    item_h =int ((menu_h -72 )/max (1 ,len (items )))
+
+                    for i ,name in enumerate (items ):
+                        r =pygame .Rect (menu_x +24 ,menu_y +40 +i *item_h ,menu_w -48 ,item_h -8 )
+                        if r .collidepoint (mx ,my ):
+
+
+                            if name =='Wielding Tool'or name =='Pistol':
+                                try :
+                                    world_pos =scaling .to_world ((mx ,my ))
+                                    if name =='Wielding Tool':
+                                        self .spawn_welding_tool (world_pos )
+                                    else :
+                                        self .spawn_pistol (world_pos )
+                                except Exception :
+                                    pass 
+
+                                self .menu_selected =None 
+                            else :
+                                self .menu_selected =name 
+                            self .close_menu ()
+                            consumed =True 
+                            break 
+
+                elif event .button ==3 :
+
+                    self .close_menu ()
+                    consumed =True 
+
+            elif event .type ==pygame .KEYDOWN :
+                if event .key in (pygame .K_q ,pygame .K_ESCAPE ):
+                    self .close_menu ()
+                    consumed =True 
+
+            return consumed 
+
+
+
+        if self .menu_selected is not None :
+            if event .type ==pygame .MOUSEBUTTONDOWN and event .button ==3 :
+                pos =scaling .to_world (event .pos )
+                if self .menu_selected =='Brick':
+                    self .spawn_brick (pos )
+                    consumed =True 
+                    return consumed 
+                elif self .menu_selected =='Wielding Tool':
+                    self .spawn_welding_tool (pos )
+                    consumed =True 
+                    return consumed 
+                elif self .menu_selected =='Pistol':
+                    self .spawn_pistol (pos )
+                    consumed =True 
+                    return consumed 
+
+            if self .menu_selected =='Wielding Tool'and event .type ==pygame .MOUSEBUTTONDOWN and event .button ==1 :
+                if self .welding_tool and not self .welding_tool ['held']:
+                    mouse_pos =pygame .math .Vector2 (scaling .to_world (event .pos ))
+                    if (mouse_pos -self .welding_tool ['pos']).length ()<48 :
+                        self .pickup_welding_tool ()
+                        consumed =True 
+                        return consumed 
+
+
+        if event .type ==pygame .MOUSEBUTTONDOWN :
+
+            if event .button ==3 and self .pistol and self .pistol .get ('held',False ):
+                try :
+                    from src .guns .pistol import Pistol 
+                    if not hasattr (self ,'_pistol_obj')or self ._pistol_obj is None :
+                        self ._pistol_obj =Pistol (self .pistol ['pos'],icon =self .pistol_icon )
+
+                    self ._pistol_obj .pos =self .pistol ['pos']
+                    self ._pistol_obj .held =self .pistol ['held']
+                    target =scaling .to_world (event .pos )
+                    self ._pistol_obj .shoot (target )
+                    consumed =True 
+                    return consumed 
+                except Exception :
+                    pass 
+            pos =scaling .to_world (event .pos )
+
+            if event .button ==3 :
+                if self .menu_selected =='Wielding Tool':
+                    self .spawn_welding_tool (pos )
+                elif self .menu_selected =='Pistol':
+                    self .spawn_pistol (pos )
+                else :
+                    self .spawn_brick (pos )
+                consumed =True 
+                return consumed 
+
+            elif event .button ==1 :
+
+                if self .welding_tool and not self .welding_tool .get ('held',False ):
+                    try :
+                        if (pos -self .welding_tool ['pos']).length ()<48 :
+                            self .welding_tool ['held']=True 
+                            consumed =True 
+                            return consumed 
+                    except Exception :
+                        pass 
+
+
+
+                if self .pistol and not self .pistol .get ('held',False ):
+                    try :
+                        if (pos -self .pistol ['pos']).length ()<96 :
+                            self .pistol ['held']=True 
+                            consumed =True 
+                            return consumed 
+                    except Exception :
+                        pass 
+
+
+                found =self .find_nearest_moveable (pos ,npcs ,max_dist =80 )
+                if found is not None :
+                    self .dragging =True 
+                    self .target =found 
+                    if found [0 ]=='brick':
+                        brick =found [1 ]
+                        self .offset =brick .p .pos -pygame .math .Vector2 (pos )
+                        consumed =True 
+                    else :
+                        npc =found [1 ]
+                        try :
+                            p =npc .particles [2 ]
+                            self .offset =p .pos -pygame .math .Vector2 (pos )
+                            consumed =True 
+                        except Exception :
+                            self .dragging =False 
+                            self .target =None 
+                return consumed 
+
+        elif event .type ==pygame .MOUSEBUTTONUP :
+            if event .button ==1 and self .dragging :
+
+                self .dragging =False 
+                if self .target and self .target [0 ]=='brick':
+
+                    brick =self .target [1 ]
+                    old_pos =brick .p .prev 
+                    brick .p .prev =brick .p .pos -(brick .p .pos -old_pos )*0.5 
+                self .target =None 
+                consumed =True 
+                return consumed 
+
+
+            if self .welding_tool and self .welding_tool .get ('held',False )and event .button ==1 :
+                self .welding_tool ['held']=False 
+                consumed =True 
+                return consumed 
+
+        return consumed 
+
+    def update (self ,dt ,npcs =None ,floor =None ):
+
+        for b in self .bricks :
+            b .update (dt ,floor_y =floor ,other_bricks =self .bricks )
+
+
+        if self .welding_tool :
+            from src .wield import WeldingTool 
+            if not hasattr (self ,'_welding_tool_obj')or self ._welding_tool_obj is None :
+                self ._welding_tool_obj =WeldingTool (self .welding_tool ['pos'],icon =self .welding_icon )
+            self ._welding_tool_obj .pos =self .welding_tool ['pos']
+            self ._welding_tool_obj .held =self .welding_tool ['held']
+            self ._welding_tool_obj .update (npcs or [],self .bricks )
+
+            if self .welding_tool ['held']:
+                try :
+                    self .welding_tool ['pos']=pygame .math .Vector2 (scaling .to_world (pygame .mouse .get_pos ()))
+                except Exception :
+                    self .welding_tool ['pos']=pygame .math .Vector2 (pygame .mouse .get_pos ())
+
+
+        if self .pistol :
+            try :
+                from src .guns .pistol import Pistol 
+                if not hasattr (self ,'_pistol_obj')or self ._pistol_obj is None :
+                    self ._pistol_obj =Pistol (self .pistol ['pos'],icon =self .pistol_icon )
+                self ._pistol_obj .pos =self .pistol ['pos']
+                self ._pistol_obj .held =self .pistol ['held']
+
+                try :
+                    self ._pistol_obj .update (dt ,npcs or [],floor )
+                except Exception :
+
+                    self ._pistol_obj .update (dt )
+
+                if self .pistol ['held']:
+                    try :
+                        self .pistol ['pos']=pygame .math .Vector2 (scaling .to_world (pygame .mouse .get_pos ()))
+                    except Exception :
+                        self .pistol ['pos']=pygame .math .Vector2 (pygame .mouse .get_pos ())
+            except Exception :
+                pass 
+
+
+        if self .dragging and self .target is not None :
+            mpos =pygame .math .Vector2 (scaling .to_world (pygame .mouse .get_pos ()))
+            desired =mpos +self .offset 
+            ttype ,obj =self .target 
+
+            if ttype =='brick':
+
+                old_pos =obj .p .pos .copy ()
+                old_vel =obj .p .pos -obj .p .prev 
+                obj .p .pos =desired 
+
+                obj .p .prev =obj .p .pos -(old_vel *0.2 )
+            else :
+
+
+                try :
+                    idx =2 
+                    center =obj .particles [idx ].pos 
+                except Exception :
+                    idx =0 
+                    center =obj .particles [0 ].pos 
+                delta =desired -center 
+                for p in obj .particles :
+                    p .pos +=delta 
+
+    def draw (self ,surf ):
+
+        for b in self .bricks :
+            b .draw (surf )
+
+        if self .welding_tool :
+            if not hasattr (self ,'_welding_tool_obj')or self ._welding_tool_obj is None :
+                from src .wield import WeldingTool 
+                self ._welding_tool_obj =WeldingTool (self .welding_tool ['pos'],icon =self .welding_icon )
+            self ._welding_tool_obj .pos =self .welding_tool ['pos']
+            self ._welding_tool_obj .held =self .welding_tool ['held']
+            self ._welding_tool_obj .draw (surf )
+
+        if self .pistol :
+            if not hasattr (self ,'_pistol_obj')or self ._pistol_obj is None :
+                try :
+                    from src .guns .pistol import Pistol 
+                    self ._pistol_obj =Pistol (self .pistol ['pos'],icon =self .pistol_icon )
+                except Exception :
+                    self ._pistol_obj =None 
+            if self ._pistol_obj is not None :
+                self ._pistol_obj .pos =self .pistol ['pos']
+                self ._pistol_obj .held =self .pistol ['held']
+                self ._pistol_obj .draw (surf )
+
+        m =pygame .mouse .get_pos ()
+
+
+        if self .menu_open :
+            try :
+                sw ,sh =surf .get_size ()
+            except Exception :
+                sw ,sh =800 ,600 
+
+            items =['Brick','Wielding Tool','Pistol']
+
+            menu_w =max (300 ,int (sw *0.75 ))
+            menu_h =max (200 ,int (sh *0.6 ))
+
+            menu_w =min (menu_w ,sw -80 )
+            menu_h =min (menu_h ,sh -120 )
+            menu_x =(sw -menu_w )//2 
+            menu_y =(sh -menu_h )//2 
+
+            menu_rect =pygame .Rect (menu_x ,menu_y ,menu_w ,menu_h )
+            pygame .draw .rect (surf ,(20 ,20 ,20 ),menu_rect )
+            pygame .draw .rect (surf ,(200 ,200 ,200 ),menu_rect ,2 )
+
+
+            try :
+                font =pygame .font .SysFont ('Arial',max (18 ,scaling .to_screen_length (20 )))
+                header =font .render ('Select Item to Spawn',True ,(240 ,240 ,240 ))
+                surf .blit (header ,(menu_x +24 ,menu_y +12 ))
+            except Exception :
+                pass 
+
+
+            item_h =int ((menu_h -80 )/max (1 ,len (items )))
+            for i ,name in enumerate (items ):
+                r =pygame .Rect (menu_x +24 ,menu_y +48 +i *item_h ,menu_w -48 ,item_h -8 )
+                pygame .draw .rect (surf ,(40 ,40 ,40 ),r )
+                pygame .draw .rect (surf ,(120 ,120 ,120 ),r ,1 )
+
+
+                preview_size =min (120 ,r .height -12 ,int (menu_w *0.25 ))
+                preview_rect =pygame .Rect (r .x +12 ,r .y +(r .height -preview_size )//2 ,preview_size ,preview_size )
+                if name =='Wielding Tool'and self .welding_icon is not None :
+                    surf .blit (pygame .transform .scale (self .welding_icon ,(preview_size ,preview_size )),preview_rect )
+                elif name =='Pistol'and self .pistol_icon is not None :
+                    surf .blit (pygame .transform .scale (self .pistol_icon ,(preview_size ,preview_size )),preview_rect )
+                else :
+                    pygame .draw .rect (surf ,(30 ,10 ,10 ),preview_rect )
+                    inner =preview_rect .inflate (-max (3 ,scaling .to_screen_length (4 )),-max (3 ,scaling .to_screen_length (4 )))
+                    pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )
+
+
+                try :
+                    font =pygame .font .SysFont ('Arial',max (18 ,scaling .to_screen_length (18 )))
+                    txt =font .render (name ,True ,(230 ,230 ,230 ))
+                    surf .blit (txt ,(preview_rect .right +16 ,r .y +(r .height -txt .get_height ())//2 ))
+                except Exception :
+                    pass 
+
+
+            try :
+                font =pygame .font .SysFont ('Arial',max (12 ,scaling .to_screen_length (14 )))
+                hint =font .render ('Left-click to select. After selection: Right-click to spawn repeatedly. Q/Esc to close.',True ,(190 ,190 ,190 ))
+                surf .blit (hint ,(menu_x +24 ,menu_y +menu_h -28 ))
+            except Exception :
+                pass 
+
+            return 
+
+
+        if not self .equipped :
+            for b in self .bricks :
+                b .draw (surf )
+            return 
+
+
+        if self .icon is not None :
+            w ,h =self .icon .get_size ()
+            surf .blit (self .icon ,(m [0 ]-w //2 ,m [1 ]-h //2 ))
+        else :
+            pygame .draw .circle (surf ,(220 ,200 ,20 ),m ,10 )
+
+
+        menu_rect =pygame .Rect (m [0 ]+16 ,m [1 ]-self .menu_h //2 ,self .menu_w ,self .menu_h )
+        pygame .draw .rect (surf ,(30 ,30 ,30 ),menu_rect )
+        pygame .draw .rect (surf ,(200 ,200 ,200 ),menu_rect ,1 )
+
+
+        icon_rect =pygame .Rect (menu_rect .x +8 ,menu_rect .y +6 ,28 ,28 )
+        pygame .draw .rect (surf ,(150 ,40 ,40 ),icon_rect )
+        pygame .draw .rect (surf ,(20 ,10 ,10 ),icon_rect ,1 )
+
+
+        try :
+            font =pygame .font .SysFont ('Arial',max (10 ,scaling .to_screen_length (12 )))
+            txt =font .render ('Brick',True ,(220 ,220 ,220 ))
+            surf .blit (txt ,(icon_rect .right +8 ,menu_rect .y +8 ))
+        except Exception :
+            pass 
+
+
+
+        if self .menu_selected is not None :
+            try :
+
+                ps =14 
+                pr =pygame .Rect (m [0 ]+16 ,m [1 ]-self .menu_h //2 -ps -8 ,ps ,ps )
+                if self .menu_selected =='Pistol'and self .pistol_icon is not None :
+                    try :
+                        img =pygame .transform .scale (self .pistol_icon ,(ps ,ps ))
+                        surf .blit (img ,(pr .x ,pr .y ))
+                    except Exception :
+                        pygame .draw .rect (surf ,(30 ,10 ,10 ),pr )
+                        inner =pr .inflate (-2 ,-2 )
+                        pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )
+                else :
+                    pygame .draw .rect (surf ,(30 ,10 ,10 ),pr )
+                    inner =pr .inflate (-2 ,-2 )
+                    pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )
+            except Exception :
+                pass 
