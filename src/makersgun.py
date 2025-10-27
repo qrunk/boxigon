@@ -1,7 +1,7 @@
 import os 
 import pygame 
 from src import scaling 
-from src .npc import Particle 
+from src .npc import Particle, NPC 
 from src import colison
 
 
@@ -277,7 +277,7 @@ class MakersGun :
                         sw ,sh =800 ,600 
 
 
-                    items =['Brick','Wielding Tool','Pistol']
+                    items =['Brick','Wielding Tool','Pistol','NPC']
 
                     menu_w =max (300 ,int (sw *0.75 ))
                     menu_h =max (200 ,int (sh *0.6 ))
@@ -294,13 +294,25 @@ class MakersGun :
                         if r .collidepoint (mx ,my ):
 
 
-                            if name =='Wielding Tool'or name =='Pistol':
+                            if name in ('Wielding Tool','Pistol','NPC'):
                                 try :
                                     world_pos =scaling .to_world ((mx ,my ))
                                     if name =='Wielding Tool':
                                         self .spawn_welding_tool (world_pos )
-                                    else :
+                                    elif name =='Pistol':
                                         self .spawn_pistol (world_pos )
+                                    else :
+                                        # spawn NPC immediately into the provided list
+                                        try :
+                                            # to_world returns a tuple (x,y) so unpack it
+                                            wx, wy = world_pos
+                                            npcs.append(NPC(wx, wy))
+                                        except Exception :
+                                            try:
+                                                # fallback if it's a Vector2-like
+                                                npcs.append(NPC(world_pos.x, world_pos.y))
+                                            except Exception:
+                                                pass
                                 except Exception :
                                     pass 
 
@@ -340,6 +352,17 @@ class MakersGun :
                     self .spawn_pistol (pos )
                     consumed =True 
                     return consumed 
+                elif self .menu_selected == 'NPC':
+                    try:
+                        px, py = pos
+                        npcs.append(NPC(px, py))
+                    except Exception:
+                        try:
+                            npcs.append(NPC(pos.x, pos.y))
+                        except Exception:
+                            pass
+                    consumed = True
+                    return consumed
 
             if self .menu_selected =='Wielding Tool'and event .type ==pygame .MOUSEBUTTONDOWN and event .button ==1 :
                 if self .welding_tool and not self .welding_tool ['held']:
@@ -554,7 +577,7 @@ class MakersGun :
             except Exception :
                 sw ,sh =800 ,600 
 
-            items =['Brick','Wielding Tool','Pistol']
+            items =['Brick','Wielding Tool','Pistol','NPC']
 
             menu_w =max (300 ,int (sw *0.75 ))
             menu_h =max (200 ,int (sh *0.6 ))
@@ -590,6 +613,21 @@ class MakersGun :
                     surf .blit (pygame .transform .scale (self .welding_icon ,(preview_size ,preview_size )),preview_rect )
                 elif name =='Pistol'and self .pistol_icon is not None :
                     surf .blit (pygame .transform .scale (self .pistol_icon ,(preview_size ,preview_size )),preview_rect )
+                elif name =='NPC':
+                    # draw a simple humanoid preview (head + torso)
+                    cx = preview_rect.centerx
+                    cy = preview_rect.centery
+                    head_r = max(2, int(preview_size * 0.18))
+                    torso_w = max(4, int(preview_size * 0.32))
+                    torso_h = max(6, int(preview_size * 0.38))
+                    head_center = (cx, cy - head_r)
+                    torso_rect = pygame.Rect(0,0,torso_w,torso_h)
+                    torso_rect.center = (cx, cy + torso_h//6)
+                    pygame.draw.circle(surf, (16,40,18), head_center, head_r)
+                    pygame.draw.circle(surf, (54,160,60), head_center, max(1, head_r-2))
+                    pygame.draw.rect(surf, (16,40,18), torso_rect)
+                    inner = torso_rect.inflate(-max(2, scaling.to_screen_length(1)), -max(2, scaling.to_screen_length(1)))
+                    pygame.draw.rect(surf, (54,160,60), inner)
                 else :
                     pygame .draw .rect (surf ,(30 ,10 ,10 ),preview_rect )
                     inner =preview_rect .inflate (-max (3 ,scaling .to_screen_length (4 )),-max (3 ,scaling .to_screen_length (4 )))
@@ -656,6 +694,24 @@ class MakersGun :
                         img =pygame .transform .scale (self .pistol_icon ,(ps ,ps ))
                         surf .blit (img ,(pr .x ,pr .y ))
                     except Exception :
+                        pygame .draw .rect (surf ,(30 ,10 ,10 ),pr )
+                        inner =pr .inflate (-2 ,-2 )
+                        pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )
+                elif self .menu_selected == 'NPC':
+                    try:
+                        # draw small humanoid icon in the selection box
+                        cx = pr.centerx
+                        cy = pr.centery
+                        head_r = max(2, ps//3)
+                        head_center = (cx, cy - head_r//2)
+                        pygame.draw.circle(surf, (16,40,18), head_center, head_r)
+                        pygame.draw.circle(surf, (54,160,60), head_center, max(1, head_r-1))
+                        torso = pr.inflate(-ps//4, -ps//4)
+                        torso.centery = cy + head_r//2
+                        pygame.draw.rect(surf, (16,40,18), torso)
+                        inner = torso.inflate(-1, -1)
+                        pygame.draw.rect(surf, (54,160,60), inner)
+                    except Exception:
                         pygame .draw .rect (surf ,(30 ,10 ,10 ),pr )
                         inner =pr .inflate (-2 ,-2 )
                         pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )

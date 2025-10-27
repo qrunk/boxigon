@@ -28,7 +28,8 @@ def main ():
     makersgun =MakersGun ()
 
 
-    npcs =[NPC (300 ,360 ),NPC (520 ,340 )]
+    # Start with a single NPC by default
+    npcs =[NPC (300 ,360 )]
 
     running =True 
     paused =False 

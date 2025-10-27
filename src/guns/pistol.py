@@ -30,9 +30,8 @@ class Bullet :
             else :
                 fy =floor 
             if fy is not None and self .pos .y >fy :
-
                 if blood_mgr is not None :
-                    blood_mgr .splash (self .pos ,amount =3 )
+                    blood_mgr .splash (self .pos ,amount =3 ,floor_y =fy )
                 self .alive =False 
                 return 
 
@@ -53,7 +52,14 @@ class Bullet :
                                 vel =pygame .math .Vector2 (math .cos (ang )*spd ,math .sin (ang )*spd *0.6 )
 
                                 blood_mgr .emit_pixel (self .pos +pygame .math .Vector2 (random .uniform (-4 ,4 ),random .uniform (-4 ,4 )),vel ,color =(160 ,10 ,10 ))
-                            blood_mgr .splash (self .pos ,amount =6 )
+                            # if we know a floor, pass it so the puddle is placed on the floor below the hit
+                            fy_local = None
+                            if floor is not None :
+                                if hasattr (floor ,'get_floor_y'):
+                                    fy_local = floor .get_floor_y ()
+                                else :
+                                    fy_local = floor
+                            blood_mgr .splash (self .pos ,amount =6 ,floor_y =fy_local )
                     self .alive =False 
                     return 
 
@@ -74,8 +80,15 @@ class BloodParticle :
     def __init__ (self ,pos ,vel ,color =(140 ,0 ,0 ),pixel =False ):
         self .pos =pygame .math .Vector2 (pos )
         self .vel =pygame .math .Vector2 (vel )
-        self .radius =random .uniform (1.2 ,3.6 )
-        self .life =random .uniform (1.2 ,3.0 )
+        # pixel particles are used for the 'box' / pixel blood effect and
+        # should be larger and longer-lived so they read well at low resolution.
+        if pixel :
+            self .radius =random .uniform (2.6 ,6.0 )
+            self .life =random .uniform (2.0 ,4.0 )
+        else :
+            # keep a small fallback for non-pixel particles (we'll stop drawing them)
+            self .radius =random .uniform (1.2 ,3.6 )
+            self .life =random .uniform (1.2 ,3.0 )
         self .color =color 
         self .grounded =False 
         self .pixel =pixel 
@@ -99,14 +112,14 @@ class BloodParticle :
     def draw (self ,surf ):
         try :
             p =scaling .to_screen_vec (self .pos )
-            if self .pixel :
+            # Only draw pixel particles. Remove circle-style blood.
+            if not self .pixel :
+                return
 
-                size =max (1 ,int (scaling .to_screen_length (self .radius *1.5 )))
-                rect =pygame .Rect (int (p .x -size //2 ),int (p .y -size //2 ),size ,size )
-                pygame .draw .rect (surf ,self .color ,rect )
-            else :
-                r =max (1 ,int (scaling .to_screen_length (self .radius )))
-                pygame .draw .circle (surf ,self .color ,(int (p .x ),int (p .y )),r )
+            # Pixel blood should read bold on the low-res box shapes; scale it up a bit
+            size =max (1 ,int (scaling .to_screen_length (self .radius *2.0 )))
+            rect =pygame .Rect (int (p .x -size //2 ),int (p .y -size //2 ),size ,size )
+            pygame .draw .rect (surf ,self .color ,rect )
         except Exception :
             pass 
 
@@ -120,14 +133,9 @@ class Puddle :
         self .amount +=amt 
 
     def draw (self ,surf ):
-        try :
-            p =scaling .to_screen_vec (self .pos )
-            r =max (2 ,int (scaling .to_screen_length (6.0 *math .sqrt (self .amount ))))
-            s =pygame .Surface ((r *2 +4 ,r *2 +4 ),pygame .SRCALPHA )
-            pygame .draw .circle (s ,(100 ,10 ,10 ,220 ),(r +2 ,r +2 ),r )
-            surf .blit (s ,(int (p .x -r -2 ),int (p .y -r -2 )))
-        except Exception :
-            pass 
+        # Puddles (large circle blood) are intentionally disabled to keep
+        # the visual language focused on pixel blood for box/low-res style.
+        return
 
 
 class BloodManager :
@@ -136,37 +144,46 @@ class BloodManager :
         self .puddles =[]
 
     def emit (self ,pos ,vel ):
-
-        self .particles .append (BloodParticle (pos ,vel ))
+        # Emit as a pixel particle by default so there are no circle particles.
+        self .particles .append (BloodParticle (pos ,vel ,pixel =True ))
 
     def emit_pixel (self ,pos ,vel ,color =(160 ,10 ,10 )):
 
         self .particles .append (BloodParticle (pos ,vel ,color =color ,pixel =True ))
 
-    def splash (self ,pos ,amount =4 ):
+    def splash (self ,pos ,amount =4 ,floor_y =None ):
+
+        # if a floor_y is provided and the splash was above the floor,
+        # place the puddle on the floor directly below the splash position
+        try :
+            target_pos = pygame .math .Vector2 (pos )
+        except Exception :
+            target_pos = pygame .math .Vector2 (pos )
+
+        if floor_y is not None and target_pos .y < floor_y :
+            target_pos .y = floor_y
 
         if not self .puddles :
-            self .puddles .append (Puddle (pos ))
+            self .puddles .append (Puddle (target_pos ))
         else :
 
             best =None 
             bd =9999 
             for p in self .puddles :
-                d =(p .pos -pos ).length ()
+                d =(p .pos -target_pos ).length ()
                 if d <bd :
                     bd =d 
                     best =p 
             if bd <48 :
                 best .add (amount *0.5 )
             else :
-                self .puddles .append (Puddle (pos ))
+                self .puddles .append (Puddle (target_pos ))
 
     def update (self ,dt ,floor_y =None ):
         for bp in list (self .particles ):
             bp .update (dt ,floor_y =floor_y )
             if bp .life <=0 :
-
-                self .splash (bp .pos ,amount =1.0 )
+                self .splash (bp .pos ,amount =1.0 ,floor_y =floor_y )
                 try :
                     self .particles .remove (bp )
                 except Exception :
