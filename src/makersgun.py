@@ -2,6 +2,7 @@ import os
 import pygame 
 from src import scaling 
 from src .npc import Particle 
+from src import colison
 
 
 class Brick :
@@ -444,6 +445,16 @@ class MakersGun :
 
         for b in self .bricks :
             b .update (dt ,floor_y =floor ,other_bricks =self .bricks )
+
+        # Automatic collision: resolve NPC particles against spawned bricks.
+        # This keeps NPCs from passing through maker bricks without any
+        # extra wiring in the main loop.
+        if npcs and self .bricks :
+            try :
+                for npc in npcs :
+                    colison.collide_particles_with_bricks(npc.particles, self.bricks, iterations=2)
+            except Exception :
+                pass
 
 
         if self .welding_tool :
