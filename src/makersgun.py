@@ -2,6 +2,7 @@ import os
 import pygame 
 from src import scaling 
 from src .npc import Particle, NPC 
+from src.worldman import get_world_manager
 from src import colison
 
 
@@ -304,6 +305,13 @@ class MakersGun :
     def spawn_brick (self ,world_pos ):
         b =Brick (world_pos ,size =40 )
         self .bricks .append (b )
+        try:
+            mgr = get_world_manager()
+            if mgr.current_name:
+                mgr.add_brick({"type": "brick", "x": float(world_pos[0]) if isinstance(world_pos, (list, tuple)) else float(world_pos.x), "y": float(world_pos[1]) if isinstance(world_pos, (list, tuple)) else float(world_pos.y), "size": 40})
+                mgr.save_now()
+        except Exception:
+            pass
 
     def spawn_welding_tool (self ,world_pos ):
 
@@ -322,6 +330,13 @@ class MakersGun :
             # put thrusters into the bricks list so existing collision/welding
             # code will treat them like other spawned objects
             self .bricks .append (t )
+            try:
+                mgr = get_world_manager()
+                if mgr.current_name:
+                    mgr.add_brick({"type": "thruster", "x": float(world_pos[0]) if isinstance(world_pos, (list, tuple)) else float(world_pos.x), "y": float(world_pos[1]) if isinstance(world_pos, (list, tuple)) else float(world_pos.y), "size": getattr(t, 'size', 32)})
+                    mgr.save_now()
+            except Exception:
+                pass
         except Exception :
             pass
 
@@ -453,16 +468,32 @@ class MakersGun :
                                         self .spawn_pistol (world_pos )
                                     elif name == 'Axe':
                                         self.spawn_axe(world_pos)
-                                    else :
+                                    else:
                                         # spawn NPC immediately into the provided list
-                                        try :
+                                        try:
                                             # to_world returns a tuple (x,y) so unpack it
                                             wx, wy = world_pos
                                             npcs.append(NPC(wx, wy))
-                                        except Exception :
+                                            try:
+                                                mgr = get_world_manager()
+                                                if mgr.current_name:
+                                                    mgr.add_npc({"x": float(wx), "y": float(wy)})
+                                                    # extra explicit flush to disk to be robust
+                                                    mgr.save_now()
+                                            except Exception:
+                                                pass
+                                        except Exception:
                                             try:
                                                 # fallback if it's a Vector2-like
-                                                npcs.append(NPC(world_pos.x, world_pos.y))
+                                                nx, ny = world_pos.x, world_pos.y
+                                                npcs.append(NPC(nx, ny))
+                                                try:
+                                                    mgr = get_world_manager()
+                                                    if mgr.current_name:
+                                                        mgr.add_npc({"x": float(nx), "y": float(ny)})
+                                                        mgr.save_now()
+                                                except Exception:
+                                                    pass
                                             except Exception:
                                                 pass
                                 except Exception :
@@ -516,9 +547,24 @@ class MakersGun :
                     try:
                         px, py = pos
                         npcs.append(NPC(px, py))
+                        try:
+                            mgr = get_world_manager()
+                            if mgr.current_name:
+                                mgr.add_npc({"x": float(px), "y": float(py)})
+                                mgr.save_now()
+                        except Exception:
+                            pass
                     except Exception:
                         try:
-                            npcs.append(NPC(pos.x, pos.y))
+                            nx, ny = pos.x, pos.y
+                            npcs.append(NPC(nx, ny))
+                            try:
+                                mgr = get_world_manager()
+                                if mgr.current_name:
+                                    mgr.add_npc({"x": float(nx), "y": float(ny)})
+                                    mgr.save_now()
+                            except Exception:
+                                pass
                         except Exception:
                             pass
                     consumed = True
