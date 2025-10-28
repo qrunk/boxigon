@@ -6,6 +6,7 @@ from src .npc import NPC
 from src .fiddle import Fiddle 
 from src import scaling 
 from src .makersgun import MakersGun 
+from src.menu import Menu
 
 
 def main ():
@@ -24,6 +25,8 @@ def main ():
 
     bg =Background (DESIGN_W ,DESIGN_H ,grid_size =40 ,speed =0 )
     base =Baseplate (DESIGN_W ,DESIGN_H ,y =480 )
+    # Main menu shown on startup
+    menu =Menu (DESIGN_W ,DESIGN_H )
     fiddle =Fiddle ()
     makersgun =MakersGun ()
 
@@ -63,6 +66,12 @@ def main ():
                 hud_font =pygame .font .SysFont ('Arial',fs )
 
 
+            # If the main menu is active, let it handle input first.
+            if menu .active :
+                consumed =menu .handle_event (event )
+                if consumed :
+                    continue
+
             # Default ordering: let MakersGun handle the event first (spawn/menu
             # logic and object dragging). If it doesn't consume the event, allow
             # the Fiddle (direct NPC particle dragging) to handle it.
@@ -70,25 +79,33 @@ def main ():
             if not consumed :
                 fiddle .handle_event (event ,npcs )
 
-        if not paused :
-            bg .update (dt )
+        if menu .active :
+            menu .update (dt )
+        else :
+            if not paused :
+                bg .update (dt )
+                for npc in npcs :
+
+                    npc .update (dt ,floor_y =base )
+                fiddle .update (dt )
+                makersgun .update (dt ,npcs =npcs ,floor =base )
+
+
+        # If menu active, draw it (it includes a background). Otherwise draw
+        # the normal game scene.
+        if menu .active :
+            menu .draw (screen )
+        else :
+            bg .draw (screen )
+            base .draw (screen )
+
             for npc in npcs :
+                npc .draw (screen )
 
-                npc .update (dt ,floor_y =base )
-            fiddle .update (dt )
-            makersgun .update (dt ,npcs =npcs ,floor =base )
-
-
-        bg .draw (screen )
-        base .draw (screen )
-
-        for npc in npcs :
-            npc .draw (screen )
-
-        fiddle .draw (screen )
+            fiddle .draw (screen )
 
 
-        makersgun .draw (screen )
+            makersgun .draw (screen )
 
 
         fps =int (clock .get_fps ())
