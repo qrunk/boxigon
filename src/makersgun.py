@@ -123,6 +123,8 @@ class MakersGun :
         self .welding_tool =None 
         self .pistol =None 
         self .thruster_icon =None
+        self .axe =None
+        self .axe_icon =None
 
         self .icon =None 
         self .welding_icon =None 
@@ -142,6 +144,9 @@ class MakersGun :
             thruster_path =os .path .join (base ,'thruster.png')
             if os .path .exists (thruster_path ):
                 self .thruster_icon =pygame .image .load (thruster_path ).convert_alpha ()
+            axe_path =os.path.join(base, 'axe.png')
+            if os.path.exists(axe_path):
+                self .axe_icon =pygame.image.load(axe_path).convert_alpha()
         except Exception :
             self .icon =None 
             self .welding_icon =None 
@@ -206,6 +211,18 @@ class MakersGun :
         except Exception :
             pass
 
+    def spawn_axe(self, world_pos):
+        self.axe = {'pos': pygame.math.Vector2(world_pos), 'held': False}
+
+    def pickup_axe(self):
+        if self.axe:
+            self.axe['held'] = True
+
+    def drop_axe(self):
+        if self.axe:
+            self.axe['held'] = False
+        return
+
     def pickup_pistol (self ):
         if self .pistol :
             self .pistol ['held']=True 
@@ -225,7 +242,9 @@ class MakersGun :
                 pygame .mouse .set_visible (True )
             except Exception :
                 pass 
-            self .menu_open =True 
+
+
+        self .menu_open =True 
 
     def close_menu (self ):
         """Close the spawn menu and restore previous cursor visibility."""
@@ -294,7 +313,7 @@ class MakersGun :
                         sw ,sh =800 ,600 
 
 
-                    items =['Brick','Wielding Tool','Pistol','Thruster','NPC']
+                    items =['Brick','Wielding Tool','Pistol','Axe','Thruster','NPC']
 
                     menu_w =max (300 ,int (sw *0.75 ))
                     menu_h =max (200 ,int (sh *0.6 ))
@@ -311,13 +330,15 @@ class MakersGun :
                         if r .collidepoint (mx ,my ):
 
 
-                            if name in ('Wielding Tool','Pistol','NPC'):
+                            if name in ('Wielding Tool','Pistol','Axe','NPC'):
                                 try :
                                     world_pos =scaling .to_world ((mx ,my ))
                                     if name =='Wielding Tool':
                                         self .spawn_welding_tool (world_pos )
                                     elif name =='Pistol':
                                         self .spawn_pistol (world_pos )
+                                    elif name == 'Axe':
+                                        self.spawn_axe(world_pos)
                                     else :
                                         # spawn NPC immediately into the provided list
                                         try :
@@ -369,6 +390,10 @@ class MakersGun :
                     self .spawn_pistol (pos )
                     consumed =True 
                     return consumed 
+                elif self .menu_selected == 'Axe':
+                    self.spawn_axe(pos)
+                    consumed = True
+                    return consumed
                 elif self .menu_selected =='Thruster':
                     self .spawn_thruster (pos )
                     consumed =True 
@@ -392,6 +417,16 @@ class MakersGun :
                         self .pickup_welding_tool ()
                         consumed =True 
                         return consumed 
+            if self .menu_selected == 'Axe' and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self.axe and not self.axe.get('held', False):
+                    mouse_pos = pygame.math.Vector2(scaling.to_world(event.pos))
+                    try:
+                        if (mouse_pos - self.axe['pos']).length() < 48:
+                            self.pickup_axe()
+                            consumed = True
+                            return consumed
+                    except Exception:
+                        pass
 
 
         if event .type ==pygame .MOUSEBUTTONDOWN :
@@ -417,6 +452,8 @@ class MakersGun :
                     self .spawn_welding_tool (pos )
                 elif self .menu_selected =='Pistol':
                     self .spawn_pistol (pos )
+                elif self .menu_selected == 'Axe':
+                    self.spawn_axe(pos)
                 elif self .menu_selected =='Thruster':
                     self .spawn_thruster (pos )
                 else :
@@ -445,6 +482,16 @@ class MakersGun :
                             return consumed 
                     except Exception :
                         pass 
+
+
+                if self .axe and not self .axe.get('held', False):
+                    try:
+                        if (pos - self .axe['pos']).length() < 48:
+                            self .axe['held'] = True
+                            consumed = True
+                            return consumed
+                    except Exception:
+                        pass
 
 
                 found =self .find_nearest_moveable (pos ,npcs ,max_dist =80 )
@@ -484,6 +531,11 @@ class MakersGun :
                 self .welding_tool ['held']=False 
                 consumed =True 
                 return consumed 
+
+            if self .axe and self .axe.get('held', False) and event.button == 1:
+                self .axe['held'] = False
+                consumed = True
+                return consumed
 
         return consumed 
 
@@ -554,6 +606,29 @@ class MakersGun :
                 pass 
 
 
+        if self .axe :
+            try :
+                from src .axe import Axe
+                if not hasattr (self ,'_axe_obj')or self ._axe_obj is None :
+                    self ._axe_obj =Axe (self .axe ['pos'],icon =self .axe_icon )
+                self ._axe_obj .pos =self .axe ['pos']
+                self ._axe_obj .held =self .axe ['held']
+                try :
+                    self ._axe_obj .update (npcs or [],self .bricks ,floor)
+                except Exception :
+                    try:
+                        self ._axe_obj .update (npcs or [],self .bricks ,floor)
+                    except Exception:
+                        pass
+
+                if self .axe ['held']:
+                    try :
+                        self .axe ['pos']=pygame .math .Vector2 (scaling .to_world (pygame .mouse .get_pos ()))
+                    except Exception :
+                        self .axe ['pos']=pygame .math .Vector2 (pygame .mouse .get_pos ())
+            except Exception :
+                pass 
+
         if self .dragging and self .target is not None :
             mpos =pygame .math .Vector2 (scaling .to_world (pygame .mouse .get_pos ()))
             desired =mpos +self .offset 
@@ -604,6 +679,18 @@ class MakersGun :
                 self ._pistol_obj .held =self .pistol ['held']
                 self ._pistol_obj .draw (surf )
 
+        if self .axe :
+            if not hasattr (self ,'_axe_obj')or self ._axe_obj is None :
+                try :
+                    from src .axe import Axe 
+                    self ._axe_obj =Axe (self .axe ['pos'],icon =self .axe_icon )
+                except Exception :
+                    self ._axe_obj =None 
+            if self ._axe_obj is not None :
+                self ._axe_obj .pos =self .axe ['pos']
+                self ._axe_obj .held =self .axe ['held']
+                self ._axe_obj .draw (surf )
+
         m =pygame .mouse .get_pos ()
 
 
@@ -613,7 +700,7 @@ class MakersGun :
             except Exception :
                 sw ,sh =800 ,600 
 
-            items =['Brick','Wielding Tool','Pistol','Thruster','NPC']
+            items =['Brick','Wielding Tool','Pistol','Axe','Thruster','NPC']
 
             menu_w =max (300 ,int (sw *0.75 ))
             menu_h =max (200 ,int (sh *0.6 ))
@@ -649,6 +736,8 @@ class MakersGun :
                     surf .blit (pygame .transform .scale (self .welding_icon ,(preview_size ,preview_size )),preview_rect )
                 elif name =='Pistol'and self .pistol_icon is not None :
                     surf .blit (pygame .transform .scale (self .pistol_icon ,(preview_size ,preview_size )),preview_rect )
+                elif name == 'Axe' and self .axe_icon is not None :
+                    surf .blit (pygame .transform .scale (self .axe_icon ,(preview_size ,preview_size )),preview_rect )
                 elif name =='Thruster'and self .thruster_icon is not None :
                     surf .blit (pygame .transform .scale (self .thruster_icon ,(preview_size ,preview_size )),preview_rect )
                 elif name =='NPC':
@@ -730,6 +819,14 @@ class MakersGun :
                 if self .menu_selected =='Pistol'and self .pistol_icon is not None :
                     try :
                         img =pygame .transform .scale (self .pistol_icon ,(ps ,ps ))
+                        surf .blit (img ,(pr .x ,pr .y ))
+                    except Exception :
+                        pygame .draw .rect (surf ,(30 ,10 ,10 ),pr )
+                        inner =pr .inflate (-2 ,-2 )
+                        pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )
+                elif self .menu_selected =='Axe' and self .axe_icon is not None :
+                    try :
+                        img =pygame .transform .scale (self .axe_icon ,(ps ,ps ))
                         surf .blit (img ,(pr .x ,pr .y ))
                     except Exception :
                         pygame .draw .rect (surf ,(30 ,10 ,10 ),pr )

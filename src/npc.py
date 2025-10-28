@@ -1,6 +1,12 @@
 import math 
+import random
 import pygame 
 from src import scaling 
+
+try:
+    from src.guns.pistol import BloodManager
+except Exception:
+    BloodManager = None
 
 
 class Particle :
@@ -80,6 +86,13 @@ class NPC :
         self .gravity =pygame .math .Vector2 (0 ,900 )
 
         self .cut_particles =set ()
+
+        # Health / bleeding
+        self.hp = 100.0
+        self.bleed_time = 0.0
+        self.bleed_dps = 20.0
+        self.last_hit_pos = None
+        self.blood = BloodManager() if BloodManager is not None else None
 
         # Standing / animation support
         # Store the rest local offsets relative to the torso center
@@ -186,27 +199,45 @@ class NPC :
                     except Exception :
                         pass
 
-        def drop_dead (self ):
-            """Disable standing behaviour and give the NPC a downward impulse
-            so it collapses to the ground.
-            """
-            try :
-                self .stand_enabled =False
-            except Exception :
-                pass
+        # Bleeding over time: if an NPC has bleeding time remaining, reduce
+        # HP, emit some pixel blood, and drop dead when HP reaches zero.
+        try :
+            if getattr(self, 'bleed_time', 0.0) > 0.0:
+                self.bleed_time -= dt
+                # apply damage over time
+                try:
+                    self.hp -= (getattr(self, 'bleed_dps', 0.0) * dt)
+                except Exception:
+                    pass
 
-            # give a short downward velocity impulse so the NPC visibly falls
-            try :
-                # stronger downward impulse so the NPC falls quickly to the floor
-                impulse_y =300
-                for p in self .particles :
-                    # set previous position so velocity is downward (larger value)
-                    p .prev =p .pos -pygame .math .Vector2 (0 ,impulse_y )
-                # also nudge the particles a little bit downward immediately
-                for p in self .particles :
-                    p .pos +=pygame .math .Vector2 (0 ,8 )
-            except Exception :
-                pass
+                # emit a few pixel blood particles near last hit
+                try:
+                    if getattr(self, 'blood', None) is not None and self.last_hit_pos is not None:
+                        for _ in range(3):
+                            ang = random.uniform(-math.pi, math.pi)
+                            spd = random.uniform(60, 220)
+                            vel = pygame.math.Vector2(math.cos(ang) * spd, math.sin(ang) * spd * 0.6)
+                            try:
+                                self.blood.emit_pixel(self.last_hit_pos + pygame.math.Vector2(random.uniform(-4, 4), random.uniform(-4, 4)), vel, color=(160, 10, 10))
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+
+                # if HP depleted, drop dead
+                try:
+                    if getattr(self, 'hp', 1e9) <= 0.0:
+                        try:
+                            self.drop_dead()
+                        except Exception:
+                            try:
+                                self.stand_enabled = False
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        except Exception :
+            pass
 
     def apply_bullet_hit (self ,pos ):
         """Apply bullet damage at world-space position pos.
@@ -236,6 +267,18 @@ class NPC :
                     p .pos +=push 
         except Exception :
             pass 
+
+        # Start bleeding on hit: set bleed timer and remember hit position.
+        try:
+            self.bleed_time = max(getattr(self, 'bleed_time', 0.0), 2.5)
+            self.last_hit_pos = pygame.math.Vector2(pos)
+            # small immediate HP loss
+            try:
+                self.hp -= 10.0
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def draw (self ,surf ):
 
@@ -315,3 +358,21 @@ class NPC :
                 best_d =d 
                 best =i 
         return best 
+
+    def drop_dead(self):
+        """Disable standing behaviour and give the NPC a downward impulse
+        so it collapses to the ground.
+        """
+        try:
+            self.stand_enabled = False
+        except Exception:
+            pass
+
+        try:
+            impulse_y = 300
+            for p in self.particles:
+                p.prev = p.pos - pygame.math.Vector2(0, impulse_y)
+            for p in self.particles:
+                p.pos += pygame.math.Vector2(0, 8)
+        except Exception:
+            pass
