@@ -343,7 +343,9 @@ class NPC :
             pygame .draw .rect (surf ,self .color ,inner )
 
 
-            eye_x =int (head_pos .x +hs *0.18 )
+            # allow drawing to flip horizontally by a `facing` attribute set by possession
+            facing = getattr(self, 'facing', 1)
+            eye_x = int(head_pos.x + hs *0.18 * facing)
             eye_y =int (head_pos .y -hs *0.05 )
             eye_w =max (1 ,scaling .to_screen_length (4 ))
             pygame .draw .rect (surf ,(10 ,10 ,10 ),pygame .Rect (eye_x ,eye_y ,eye_w ,eye_w ))

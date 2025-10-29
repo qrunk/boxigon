@@ -36,9 +36,11 @@ class MakersGun:
         self.bricks = []
         self.welding_tool = None
         self.pistol = None
+        self.ak47 = None
         self.thruster_icon = None
         self.axe = None
         self.axe_icon = None
+        self.ak47_icon = None
 
         self.icon = None
         self.welding_icon = None
@@ -55,6 +57,9 @@ class MakersGun:
             pistol_path = os.path.join(base, 'pistol.png')
             if os.path.exists(pistol_path):
                 self.pistol_icon = pygame.image.load(pistol_path).convert_alpha()
+            ak47_path = os.path.join(base, 'ak47.png')
+            if os.path.exists(ak47_path):
+                self.ak47_icon = pygame.image.load(ak47_path).convert_alpha()
             thruster_path = os.path.join(base, 'thruster.png')
             if os.path.exists(thruster_path):
                 self.thruster_icon = pygame.image.load(thruster_path).convert_alpha()
@@ -72,7 +77,7 @@ class MakersGun:
         self.menu_tabs = ['Objects', 'Weapons', 'Items']
         self.menu_tab_items = {
             'Objects': ['Brick', 'Crate', 'NPC'],
-            'Weapons': ['Wielding Tool', 'Pistol', 'Axe'],
+            'Weapons': ['Wielding Tool', 'Pistol', 'AK47', 'Axe'],
             'Items': ['Thruster']
         }
         self.menu_tab_selected = 0
@@ -146,6 +151,12 @@ class MakersGun:
         except Exception:
             self.pistol = {'pos': pygame.math.Vector2((0, 0)), 'held': bool(auto_equip)}
 
+    def spawn_ak47(self, world_pos, auto_equip=False):
+        try:
+            self.ak47 = {'pos': pygame.math.Vector2(world_pos), 'held': bool(auto_equip)}
+        except Exception:
+            self.ak47 = {'pos': pygame.math.Vector2((0, 0)), 'held': bool(auto_equip)}
+
     def spawn_thruster(self, world_pos):
         try:
             from src.thruster import Thruster
@@ -178,17 +189,67 @@ class MakersGun:
 
     def pickup_pistol(self):
         if self.pistol:
+            # ensure only one weapon is held at a time
+            try:
+                if self.ak47:
+                    self.ak47['held'] = False
+            except Exception:
+                pass
+            try:
+                if self.axe:
+                    self.axe['held'] = False
+            except Exception:
+                pass
             self.pistol['held'] = True
+
+    def pickup_ak47(self):
+        if self.ak47:
+            # ensure only one weapon is held at a time
+            try:
+                if self.pistol:
+                    self.pistol['held'] = False
+            except Exception:
+                pass
+            try:
+                if self.axe:
+                    self.axe['held'] = False
+            except Exception:
+                pass
+            self.ak47['held'] = True
 
     def drop_pistol(self):
         if self.pistol:
             self.pistol['held'] = False
+
+    def drop_ak47(self):
+        if self.ak47:
+            self.ak47['held'] = False
+        return
 
     def open_menu(self):
         if not self.menu_open:
             try:
                 self._prev_cursor_visible = pygame.mouse.get_visible()
                 pygame.mouse.set_visible(True)
+            except Exception:
+                pass
+
+        if self.ak47:
+            try:
+                # Use the guns registry to lazily instantiate a gun object
+                from src.guns.core import create_gun
+                if not hasattr(self, '_ak47_obj') or self._ak47_obj is None:
+                    self._ak47_obj = create_gun('AK47', self.ak47['pos'], icon=self.ak47_icon)
+                if self._ak47_obj is not None:
+                    self._ak47_obj.pos = self.ak47['pos']
+                    self._ak47_obj.held = self.ak47['held']
+
+                # if held, track the mouse position
+                if self.ak47.get('held', False):
+                    try:
+                        self.ak47['pos'] = pygame.math.Vector2(scaling.to_world(pygame.mouse.get_pos()))
+                    except Exception:
+                        self.ak47['pos'] = pygame.math.Vector2(pygame.mouse.get_pos())
             except Exception:
                 pass
         self.menu_open = True
@@ -379,7 +440,65 @@ class MakersGun:
                         unequipped = True
                 except Exception:
                     pass
+                try:
+                    if self.ak47 and self.ak47.get('held', False):
+                        self.ak47 = None
+                        try:
+                            self._ak47_obj = None
+                        except Exception:
+                            pass
+                        unequipped = True
+                except Exception:
+                    pass
                 if unequipped:
+                    consumed = True
+                    return consumed
+        except Exception:
+            pass
+
+        # Quick-pickup: press E to pick up nearest weapon (helpful if left-click fails)
+        try:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
+                try:
+                    mpos = pygame.mouse.get_pos()
+                    world = pygame.math.Vector2(scaling.to_world(mpos))
+                except Exception:
+                    world = pygame.math.Vector2(pygame.mouse.get_pos())
+
+                best = None
+                best_d = 9999
+                # check pistol
+                try:
+                    if self.pistol:
+                        d = (self.pistol['pos'] - world).length()
+                        if d < best_d:
+                            best_d = d
+                            best = ('pistol', d)
+                except Exception:
+                    pass
+                # check ak47
+                try:
+                    if self.ak47:
+                        d = (self.ak47['pos'] - world).length()
+                        if d < best_d:
+                            best_d = d
+                            best = ('ak47', d)
+                except Exception:
+                    pass
+
+                if best is not None and best[1] < 120:
+                    if best[0] == 'pistol':
+                        try:
+                            self.pistol['held'] = True
+                            print('Picked up pistol via E')
+                        except Exception:
+                            pass
+                    elif best[0] == 'ak47':
+                        try:
+                            self.ak47['held'] = True
+                            print('Picked up AK47 via E')
+                        except Exception:
+                            pass
                     consumed = True
                     return consumed
         except Exception:
@@ -459,18 +578,33 @@ class MakersGun:
 
         if event.type == pygame.MOUSEBUTTONDOWN:
 
+            if event.button == 3 and self.ak47 and self.ak47.get('held', False):
+                try:
+                    from src.guns.core import create_gun
+                    if not hasattr(self, '_ak47_obj') or self._ak47_obj is None:
+                        self._ak47_obj = create_gun('AK47', self.ak47['pos'], icon=self.ak47_icon)
+                    if self._ak47_obj is not None:
+                        self._ak47_obj.pos = self.ak47['pos']
+                        self._ak47_obj.held = self.ak47['held']
+                        target = scaling.to_world(event.pos)
+                        self._ak47_obj.shoot(target)
+                        consumed = True
+                        return consumed
+                except Exception:
+                    pass
+
             if event.button == 3 and self.pistol and self.pistol.get('held', False):
                 try:
-                    from src.guns.pistol import Pistol
+                    from src.guns.core import create_gun
                     if not hasattr(self, '_pistol_obj') or self._pistol_obj is None:
-                        self._pistol_obj = Pistol(self.pistol['pos'], icon=self.pistol_icon)
-
-                    self._pistol_obj.pos = self.pistol['pos']
-                    self._pistol_obj.held = self.pistol['held']
-                    target = scaling.to_world(event.pos)
-                    self._pistol_obj.shoot(target)
-                    consumed = True
-                    return consumed
+                        self._pistol_obj = create_gun('Pistol', self.pistol['pos'], icon=self.pistol_icon)
+                    if self._pistol_obj is not None:
+                        self._pistol_obj.pos = self.pistol['pos']
+                        self._pistol_obj.held = self.pistol['held']
+                        target = scaling.to_world(event.pos)
+                        self._pistol_obj.shoot(target)
+                        consumed = True
+                        return consumed
                 except Exception:
                     pass
             pos = scaling.to_world(event.pos)
@@ -480,6 +614,8 @@ class MakersGun:
                     self.spawn_welding_tool(pos)
                 elif self.menu_selected == 'Pistol':
                     self.spawn_pistol(pos)
+                elif self.menu_selected == 'AK47':
+                    self.spawn_ak47(pos)
                 elif self.menu_selected == 'Axe':
                     self.spawn_axe(pos)
                 elif self.menu_selected == 'Thruster':
@@ -506,6 +642,16 @@ class MakersGun:
                     try:
                         if (pos - self.pistol['pos']).length() < 96:
                             self.pistol['held'] = True
+                            consumed = True
+                            return consumed
+                    except Exception:
+                        pass
+
+                if self.ak47 and not self.ak47.get('held', False):
+                    try:
+                        # slightly larger pickup radius for the AK47
+                        if (pos - self.ak47['pos']).length() < 140:
+                            self.ak47['held'] = True
                             consumed = True
                             return consumed
                     except Exception:
@@ -675,18 +821,21 @@ class MakersGun:
 
         if self.pistol:
             try:
-                from src.guns.pistol import Pistol
+                from src.guns.core import create_gun
                 if not hasattr(self, '_pistol_obj') or self._pistol_obj is None:
-                    self._pistol_obj = Pistol(self.pistol['pos'], icon=self.pistol_icon)
-                self._pistol_obj.pos = self.pistol['pos']
-                self._pistol_obj.held = self.pistol['held']
+                    self._pistol_obj = create_gun('Pistol', self.pistol['pos'], icon=self.pistol_icon)
+                if self._pistol_obj is not None:
+                    self._pistol_obj.pos = self.pistol['pos']
+                    self._pistol_obj.held = self.pistol['held']
+                    try:
+                        self._pistol_obj.update(dt, npcs or [], floor)
+                    except Exception:
+                        try:
+                            self._pistol_obj.update(dt)
+                        except Exception:
+                            pass
 
-                try:
-                    self._pistol_obj.update(dt, npcs or [], floor)
-                except Exception:
-                    self._pistol_obj.update(dt)
-
-                if self.pistol['held']:
+                if self.pistol.get('held', False):
                     try:
                         self.pistol['pos'] = pygame.math.Vector2(scaling.to_world(pygame.mouse.get_pos()))
                     except Exception:
@@ -779,14 +928,32 @@ class MakersGun:
         if self.pistol:
             if not hasattr(self, '_pistol_obj') or self._pistol_obj is None:
                 try:
-                    from src.guns.pistol import Pistol
-                    self._pistol_obj = Pistol(self.pistol['pos'], icon=self.pistol_icon)
+                    from src.guns.core import create_gun
+                    self._pistol_obj = create_gun('Pistol', self.pistol['pos'], icon=self.pistol_icon)
                 except Exception:
                     self._pistol_obj = None
             if self._pistol_obj is not None:
                 self._pistol_obj.pos = self.pistol['pos']
                 self._pistol_obj.held = self.pistol['held']
-                self._pistol_obj.draw(surf)
+                try:
+                    self._pistol_obj.draw(surf)
+                except Exception:
+                    pass
+
+        if self.ak47:
+            if not hasattr(self, '_ak47_obj') or self._ak47_obj is None:
+                try:
+                    from src.guns.core import create_gun
+                    self._ak47_obj = create_gun('AK47', self.ak47['pos'], icon=self.ak47_icon)
+                except Exception:
+                    self._ak47_obj = None
+            if self._ak47_obj is not None:
+                self._ak47_obj.pos = self.ak47['pos']
+                self._ak47_obj.held = self.ak47['held']
+                try:
+                    self._ak47_obj.draw(surf)
+                except Exception:
+                    pass
 
         if self.axe:
             if not hasattr(self, '_axe_obj') or self._axe_obj is None:
@@ -913,6 +1080,8 @@ class MakersGun:
                                 ui.blit(pygame.transform.scale(self.welding_icon, (preview_size, preview_size)), preview_rect)
                             elif name == 'Pistol' and self.pistol_icon is not None:
                                 ui.blit(pygame.transform.scale(self.pistol_icon, (preview_size, preview_size)), preview_rect)
+                            elif name == 'AK47' and self.ak47_icon is not None:
+                                ui.blit(pygame.transform.scale(self.ak47_icon, (preview_size, preview_size)), preview_rect)
                             elif name == 'Axe' and self.axe_icon is not None:
                                 ui.blit(pygame.transform.scale(self.axe_icon, (preview_size, preview_size)), preview_rect)
                             elif name == 'Thruster' and self.thruster_icon is not None:
@@ -1030,6 +1199,14 @@ class MakersGun:
                 if self.menu_selected == 'Pistol' and self.pistol_icon is not None:
                     try:
                         img = pygame.transform.scale(self.pistol_icon, (ps, ps))
+                        surf.blit(img, (pr.x, pr.y))
+                    except Exception:
+                        pygame.draw.rect(surf, (30, 10, 10), pr)
+                        inner = pr.inflate(-2, -2)
+                        pygame.draw.rect(surf, (180, 30, 30), inner)
+                elif self.menu_selected == 'AK47' and self.ak47_icon is not None:
+                    try:
+                        img = pygame.transform.scale(self.ak47_icon, (ps, ps))
                         surf.blit(img, (pr.x, pr.y))
                     except Exception:
                         pygame.draw.rect(surf, (30, 10, 10), pr)
