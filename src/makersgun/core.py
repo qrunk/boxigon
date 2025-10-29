@@ -5,6 +5,8 @@ from src.npc import NPC
 from src.worldman import get_world_manager
 from src import colison
 from .brick import Brick, draw_brick_pattern
+from .crate import Crate, draw_crate_pattern
+from . import objdestroy
 
 
 class MakersGun:
@@ -23,9 +25,8 @@ class MakersGun:
         self.dragging = False
 
         self.equipped = False
-
         self.menu_open = False
-
+        
         self.menu_selected = None
 
         try:
@@ -70,7 +71,7 @@ class MakersGun:
         # Tabs for spawn menu
         self.menu_tabs = ['Objects', 'Weapons', 'Items']
         self.menu_tab_items = {
-            'Objects': ['Brick', 'NPC'],
+            'Objects': ['Brick', 'Crate', 'NPC'],
             'Weapons': ['Wielding Tool', 'Pistol', 'Axe'],
             'Items': ['Thruster']
         }
@@ -119,6 +120,20 @@ class MakersGun:
             if mgr.current_name:
                 mgr.add_brick({"type": "brick", "x": float(world_pos[0]) if isinstance(world_pos, (list, tuple)) else float(world_pos.x), "y": float(world_pos[1]) if isinstance(world_pos, (list, tuple)) else float(world_pos.y), "size": 40})
                 mgr.save_now()
+        except Exception:
+            pass
+
+    def spawn_crate(self, world_pos):
+        try:
+            c = Crate(world_pos, size=48)
+            self.bricks.append(c)
+            try:
+                mgr = get_world_manager()
+                if mgr.current_name:
+                    mgr.add_brick({"type": "crate", "x": float(world_pos[0]) if isinstance(world_pos, (list, tuple)) else float(world_pos.x), "y": float(world_pos[1]) if isinstance(world_pos, (list, tuple)) else float(world_pos.y), "size": 48})
+                    mgr.save_now()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -377,6 +392,10 @@ class MakersGun:
                     self.spawn_brick(pos)
                     consumed = True
                     return consumed
+                elif self.menu_selected == 'Crate':
+                    self.spawn_crate(pos)
+                    consumed = True
+                    return consumed
                 elif self.menu_selected == 'Wielding Tool':
                     self.spawn_welding_tool(pos)
                     consumed = True
@@ -465,6 +484,8 @@ class MakersGun:
                     self.spawn_axe(pos)
                 elif self.menu_selected == 'Thruster':
                     self.spawn_thruster(pos)
+                elif self.menu_selected == 'Crate':
+                    self.spawn_crate(pos)
                 else:
                     self.spawn_brick(pos)
                 consumed = True
@@ -589,6 +610,36 @@ class MakersGun:
 
         for b in self.bricks:
             b.update(dt, floor_y=floor, other_bricks=self.bricks)
+
+        # Process objects that have been marked as broken by their own
+        # update logic. If an object sets `._broken = True` and attaches
+        # `._break_fragments` (or we can generate fragments here), replace
+        # it with the fragment pieces returned by `objdestroy.break_into_fragments`.
+        try:
+            new_list = []
+            for b in list(self.bricks):
+                try:
+                    if getattr(b, '_broken', False):
+                        # Try to use any prepared fragments first
+                        frags = getattr(b, '_break_fragments', None)
+                        if not frags:
+                            try:
+                                frags = objdestroy.break_into_fragments(b, rows=2, cols=2)
+                            except Exception:
+                                frags = []
+
+                        # add generated fragments to world
+                        for f in frags:
+                            new_list.append(f)
+                        # skip adding the original broken object
+                        continue
+                except Exception:
+                    pass
+                new_list.append(b)
+            self.bricks = new_list
+        except Exception:
+            # best-effort: ignore replacement failures and continue
+            pass
 
         if npcs and self.bricks:
             try:
@@ -899,6 +950,11 @@ class MakersGun:
                                     pygame.draw.rect(ui, (16, 40, 18), torso_rect)
                                     inner = torso_rect.inflate(-max(2, scaling.to_screen_length(1)), -max(2, scaling.to_screen_length(1)))
                                     pygame.draw.rect(ui, (54, 160, 60), inner)
+                            elif name == 'Crate':
+                                try:
+                                    draw_crate_pattern(ui, preview_rect, color=(160, 110, 60), outline=(60, 40, 20), border_radius=6)
+                                except Exception:
+                                    pygame.draw.rect(ui, (160, 110, 60), preview_rect, border_radius=6)
                             else:
                                 # draw brick preview using shared pattern renderer
                                 try:
@@ -908,6 +964,7 @@ class MakersGun:
                                     pygame.draw.rect(ui, (150, 30, 30), preview_rect, border_radius=6)
                                     inner = preview_rect.inflate(-max(4, scaling.to_screen_length(6)), -max(4, scaling.to_screen_length(6)))
                                     pygame.draw.rect(ui, (200, 60, 60), inner, border_radius=4)
+                            
                         except Exception:
                             pass
 
@@ -1014,6 +1071,13 @@ class MakersGun:
                         pygame.draw.rect(surf, (30, 10, 10), pr)
                         inner = pr.inflate(-2, -2)
                         pygame.draw.rect(surf, (180, 30, 30), inner)
+                elif self.menu_selected == 'Crate':
+                    try:
+                        draw_crate_pattern(surf, pr, color=(160, 110, 60), outline=(60, 40, 20), border_radius=4)
+                    except Exception:
+                        pygame.draw.rect(surf, (30, 10, 10), pr)
+                        inner = pr.inflate(-2, -2)
+                        pygame.draw.rect(surf, (160, 110, 60), inner)
                 else:
                     try:
                         draw_brick_pattern(surf, pr, color=(180, 30, 30), outline=(30, 10, 10), border_radius=4)
