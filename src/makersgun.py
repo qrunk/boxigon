@@ -328,8 +328,13 @@ class MakersGun :
 
         self .welding_tool ={'pos':pygame .math .Vector2 (world_pos ),'held':False }
 
-    def spawn_pistol (self ,world_pos ):
-        self .pistol ={'pos':pygame .math .Vector2 (world_pos ),'held':False }
+    def spawn_pistol (self ,world_pos ,auto_equip=False ):
+        """Spawn a pistol. If auto_equip is True, mark it held so it attaches to the cursor."""
+        try:
+            self .pistol ={'pos':pygame .math .Vector2 (world_pos ),'held':bool(auto_equip) }
+        except Exception:
+            # defensive fallback
+            self .pistol ={'pos':pygame .math .Vector2 ((0,0)),'held':bool(auto_equip) }
 
     def spawn_thruster(self, world_pos):
         """Spawn a thruster object into the world (appended to bricks so it
@@ -351,8 +356,12 @@ class MakersGun :
         except Exception :
             pass
 
-    def spawn_axe(self, world_pos):
-        self.axe = {'pos': pygame.math.Vector2(world_pos), 'held': False}
+    def spawn_axe(self, world_pos, auto_equip=False):
+        """Spawn an axe. If auto_equip is True, mark it held so it attaches to the cursor."""
+        try:
+            self.axe = {'pos': pygame.math.Vector2(world_pos), 'held': bool(auto_equip)}
+        except Exception:
+            self.axe = {'pos': pygame.math.Vector2((0,0)), 'held': bool(auto_equip)}
 
     def pickup_axe(self):
         if self.axe:
@@ -500,9 +509,11 @@ class MakersGun :
                                         if name == 'Wielding Tool':
                                             self.spawn_welding_tool(world_pos)
                                         elif name == 'Pistol':
-                                            self.spawn_pistol(world_pos)
+                                            # auto-equip pistol when selected from the menu
+                                            self.spawn_pistol(world_pos, auto_equip=True)
                                         elif name == 'Axe':
-                                            self.spawn_axe(world_pos)
+                                            # auto-equip axe when selected from the menu
+                                            self.spawn_axe(world_pos, auto_equip=True)
                                         else:
                                             try:
                                                 wx, wy = world_pos
@@ -550,7 +561,37 @@ class MakersGun :
 
             return consumed
 
-
+        # Global key handling when menu is not open: allow quick unequip
+        # of items that attach to the cursor (pistol, axe) using Q.
+        try:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_q:
+                unequipped = False
+                try:
+                    if self .pistol and self .pistol.get('held', False):
+                        # remove the pistol entirely
+                        self .pistol = None
+                        try:
+                            self ._pistol_obj = None
+                        except Exception:
+                            pass
+                        unequipped = True
+                except Exception:
+                    pass
+                try:
+                    if self .axe and self .axe.get('held', False):
+                        self .axe = None
+                        try:
+                            self ._axe_obj = None
+                        except Exception:
+                            pass
+                        unequipped = True
+                except Exception:
+                    pass
+                if unequipped:
+                    consumed = True
+                    return consumed
+        except Exception:
+            pass
 
         if self .menu_selected is not None :
             if event .type ==pygame .MOUSEBUTTONDOWN and event .button ==3 :
