@@ -269,6 +269,17 @@ class MakersGun :
 
         self .menu_w =96 
         self .menu_h =40 
+        # Tabs for spawn menu: map tab name -> list of item names
+        # Objects: bricks and NPCs; Weapons: pistol, welding tool, axe; Items: thruster
+        self.menu_tabs = ['Objects', 'Weapons', 'Items']
+        self.menu_tab_items = {
+            'Objects': ['Brick', 'NPC'],
+            'Weapons': ['Wielding Tool', 'Pistol', 'Axe'],
+            'Items': ['Thruster']
+        }
+        self.menu_tab_selected = 0
+        # visual tab height in pixels (screen space)
+        self.menu_tab_h = 28
     def pickup_welding_tool (self ):
         if self .welding_tool :
             self .welding_tool ['held']=True 
@@ -431,92 +442,113 @@ class MakersGun :
 
 
         if self .menu_open :
-            if event .type ==pygame .MOUSEBUTTONDOWN :
-                if event .button ==1 :
-                    mx ,my =event .pos 
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    mx, my = event.pos
+                    try:
+                        surf = pygame.display.get_surface()
+                        sw, sh = surf.get_size()
+                    except Exception:
+                        sw, sh = 800, 600
 
-                    try :
-                        surf =pygame .display .get_surface ()
-                        sw ,sh =surf .get_size ()
-                    except Exception :
-                        sw ,sh =800 ,600 
+                    menu_w = max(300, int(sw * 0.75))
+                    menu_h = max(200, int(sh * 0.6))
 
+                    menu_w = min(menu_w, sw - 80)
+                    menu_h = min(menu_h, sh - 120)
+                    menu_x = (sw - menu_w) // 2
+                    menu_y = (sh - menu_h) // 2
 
-                    items =['Brick','Wielding Tool','Pistol','Axe','Thruster','NPC']
+                    # Check tab clicks first
+                    try:
+                        tabs = self.menu_tabs
+                        tab_count = max(1, len(tabs))
+                        tab_w = menu_w // tab_count
+                        tabs_y = menu_y - (self.menu_tab_h // 2)
+                        for i in range(tab_count):
+                            tx = menu_x + i * tab_w
+                            tab_rect = pygame.Rect(tx, tabs_y, tab_w, self.menu_tab_h)
+                            if tab_rect.collidepoint(mx, my):
+                                self.menu_tab_selected = i
+                                consumed = True
+                                return consumed
+                    except Exception:
+                        pass
 
-                    menu_w =max (300 ,int (sw *0.75 ))
-                    menu_h =max (200 ,int (sh *0.6 ))
+                    # Otherwise check grid cells
+                    try:
+                        items = self.menu_tab_items.get(self.menu_tabs[self.menu_tab_selected], [])
 
-                    menu_w =min (menu_w ,sw -80 )
-                    menu_h =min (menu_h ,sh -120 )
-                    menu_x =(sw -menu_w )//2 
-                    menu_y =(sh -menu_h )//2 
+                        available_w = menu_w - 48
+                        cols = max(1, available_w // 96)
+                        cell_w = available_w // cols
+                        cell_size = max(40, min(120, cell_w))
+                        start_x = menu_x + 24
+                        start_y = menu_y + 48
 
-                    item_h =int ((menu_h -72 )/max (1 ,len (items )))
-
-                    for i ,name in enumerate (items ):
-                        r =pygame .Rect (menu_x +24 ,menu_y +40 +i *item_h ,menu_w -48 ,item_h -8 )
-                        if r .collidepoint (mx ,my ):
-
-
-                            if name in ('Wielding Tool','Pistol','Axe','NPC'):
-                                try :
-                                    world_pos =scaling .to_world ((mx ,my ))
-                                    if name =='Wielding Tool':
-                                        self .spawn_welding_tool (world_pos )
-                                    elif name =='Pistol':
-                                        self .spawn_pistol (world_pos )
-                                    elif name == 'Axe':
-                                        self.spawn_axe(world_pos)
-                                    else:
-                                        # spawn NPC immediately into the provided list
-                                        try:
-                                            # to_world returns a tuple (x,y) so unpack it
-                                            wx, wy = world_pos
-                                            npcs.append(NPC(wx, wy))
+                        for idx, name in enumerate(items):
+                            col = idx % cols
+                            row = idx // cols
+                            x = start_x + col * cell_size
+                            y = start_y + row * (cell_size + 20)
+                            r = pygame.Rect(x, y, cell_size - 8, cell_size - 8)
+                            if r.collidepoint(mx, my):
+                                # spawn immediately for some types
+                                if name in ('Wielding Tool', 'Pistol', 'Axe', 'NPC'):
+                                    try:
+                                        world_pos = scaling.to_world((mx, my))
+                                        if name == 'Wielding Tool':
+                                            self.spawn_welding_tool(world_pos)
+                                        elif name == 'Pistol':
+                                            self.spawn_pistol(world_pos)
+                                        elif name == 'Axe':
+                                            self.spawn_axe(world_pos)
+                                        else:
                                             try:
-                                                mgr = get_world_manager()
-                                                if mgr.current_name:
-                                                    mgr.add_npc({"x": float(wx), "y": float(wy)})
-                                                    # extra explicit flush to disk to be robust
-                                                    mgr.save_now()
-                                            except Exception:
-                                                pass
-                                        except Exception:
-                                            try:
-                                                # fallback if it's a Vector2-like
-                                                nx, ny = world_pos.x, world_pos.y
-                                                npcs.append(NPC(nx, ny))
+                                                wx, wy = world_pos
+                                                npcs.append(NPC(wx, wy))
                                                 try:
                                                     mgr = get_world_manager()
                                                     if mgr.current_name:
-                                                        mgr.add_npc({"x": float(nx), "y": float(ny)})
+                                                        mgr.add_npc({'x': float(wx), 'y': float(wy)})
                                                         mgr.save_now()
                                                 except Exception:
                                                     pass
                                             except Exception:
-                                                pass
-                                except Exception :
-                                    pass 
+                                                try:
+                                                    nx, ny = world_pos.x, world_pos.y
+                                                    npcs.append(NPC(nx, ny))
+                                                    try:
+                                                        mgr = get_world_manager()
+                                                        if mgr.current_name:
+                                                            mgr.add_npc({'x': float(nx), 'y': float(ny)})
+                                                            mgr.save_now()
+                                                    except Exception:
+                                                        pass
+                                                except Exception:
+                                                    pass
+                                    except Exception:
+                                        pass
 
-                                self .menu_selected =None 
-                            else :
-                                self .menu_selected =name 
-                            self .close_menu ()
-                            consumed =True 
-                            break 
+                                    self.menu_selected = None
+                                else:
+                                    self.menu_selected = name
+                                self.close_menu()
+                                consumed = True
+                                return consumed
+                    except Exception:
+                        pass
 
-                elif event .button ==3 :
+                elif event.button == 3:
+                    self.close_menu()
+                    consumed = True
 
-                    self .close_menu ()
-                    consumed =True 
+            elif event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_q, pygame.K_ESCAPE):
+                    self.close_menu()
+                    consumed = True
 
-            elif event .type ==pygame .KEYDOWN :
-                if event .key in (pygame .K_q ,pygame .K_ESCAPE ):
-                    self .close_menu ()
-                    consumed =True 
-
-            return consumed 
+            return consumed
 
 
 
@@ -921,88 +953,131 @@ class MakersGun :
 
 
         if self .menu_open :
-            try :
-                sw ,sh =surf .get_size ()
-            except Exception :
-                sw ,sh =800 ,600 
+            try:
+                sw, sh = surf.get_size()
+            except Exception:
+                sw, sh = 800, 600
 
-            items =['Brick','Wielding Tool','Pistol','Axe','Thruster','NPC']
+            menu_w = max(300, int(sw * 0.75))
+            menu_h = max(200, int(sh * 0.6))
 
-            menu_w =max (300 ,int (sw *0.75 ))
-            menu_h =max (200 ,int (sh *0.6 ))
+            menu_w = min(menu_w, sw - 80)
+            menu_h = min(menu_h, sh - 120)
+            menu_x = (sw - menu_w) // 2
+            menu_y = (sh - menu_h) // 2
 
-            menu_w =min (menu_w ,sw -80 )
-            menu_h =min (menu_h ,sh -120 )
-            menu_x =(sw -menu_w )//2 
-            menu_y =(sh -menu_h )//2 
+            menu_rect = pygame.Rect(menu_x, menu_y, menu_w, menu_h)
+            pygame.draw.rect(surf, (20, 20, 20), menu_rect)
+            pygame.draw.rect(surf, (200, 200, 200), menu_rect, 2)
 
-            menu_rect =pygame .Rect (menu_x ,menu_y ,menu_w ,menu_h )
-            pygame .draw .rect (surf ,(20 ,20 ,20 ),menu_rect )
-            pygame .draw .rect (surf ,(200 ,200 ,200 ),menu_rect ,2 )
+            # Draw tabs across the top
+            try:
+                tabs = self.menu_tabs
+                tab_count = max(1, len(tabs))
+                tab_w = menu_w // tab_count
+                tabs_y = menu_y - (self.menu_tab_h // 2)
+                for i, tname in enumerate(tabs):
+                    tx = menu_x + i * tab_w
+                    tab_rect = pygame.Rect(tx, tabs_y, tab_w, self.menu_tab_h)
+                    if i == self.menu_tab_selected:
+                        pygame.draw.rect(surf, (40, 40, 40), tab_rect)
+                        pygame.draw.rect(surf, (220, 220, 220), tab_rect, 2)
+                    else:
+                        pygame.draw.rect(surf, (30, 30, 30), tab_rect)
+                        pygame.draw.rect(surf, (120, 120, 120), tab_rect, 1)
+                    try:
+                        font = pygame.font.SysFont('Arial', max(12, scaling.to_screen_length(14)))
+                        txt = font.render(tname, True, (230, 230, 230))
+                        tw = txt.get_width()
+                        surf.blit(txt, (tx + (tab_w - tw) // 2, tabs_y + (self.menu_tab_h - txt.get_height()) // 2))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
+            # Header
+            try:
+                font = pygame.font.SysFont('Arial', max(18, scaling.to_screen_length(20)))
+                header = font.render('Select Item to Spawn', True, (240, 240, 240))
+                surf.blit(header, (menu_x + 24, menu_y + 8))
+            except Exception:
+                pass
 
-            try :
-                font =pygame .font .SysFont ('Arial',max (18 ,scaling .to_screen_length (20 )))
-                header =font .render ('Select Item to Spawn',True ,(240 ,240 ,240 ))
-                surf .blit (header ,(menu_x +24 ,menu_y +12 ))
-            except Exception :
-                pass 
+            # Items for current tab laid out as left-aligned grid
+            try:
+                items = self.menu_tab_items.get(self.menu_tabs[self.menu_tab_selected], [])
 
+                available_w = menu_w - 48
+                # choose a reasonable column width (prefer ~96 px per cell)
+                cols = max(1, available_w // 96)
+                cell_w = available_w // cols
+                cell_size = max(40, min(120, cell_w))
+                pad_x = 8
+                pad_y = 8
+                start_x = menu_x + 24
+                start_y = menu_y + 48
 
-            item_h =int ((menu_h -80 )/max (1 ,len (items )))
-            for i ,name in enumerate (items ):
-                r =pygame .Rect (menu_x +24 ,menu_y +48 +i *item_h ,menu_w -48 ,item_h -8 )
-                pygame .draw .rect (surf ,(40 ,40 ,40 ),r )
-                pygame .draw .rect (surf ,(120 ,120 ,120 ),r ,1 )
+                for idx, name in enumerate(items):
+                    col = idx % cols
+                    row = idx // cols
+                    x = start_x + col * cell_size
+                    y = start_y + row * (cell_size + 20)
+                    r = pygame.Rect(x, y, cell_size - pad_x, cell_size - pad_y)
+                    pygame.draw.rect(surf, (40, 40, 40), r)
+                    pygame.draw.rect(surf, (120, 120, 120), r, 1)
 
+                    # preview inside square
+                    preview_size = max(16, r.h - 8)
+                    preview_rect = pygame.Rect(r.x + (r.w - preview_size) // 2, r.y + 6, preview_size, preview_size)
+                    try:
+                        if name == 'Wielding Tool' and self.welding_icon is not None:
+                            surf.blit(pygame.transform.scale(self.welding_icon, (preview_size, preview_size)), preview_rect)
+                        elif name == 'Pistol' and self.pistol_icon is not None:
+                            surf.blit(pygame.transform.scale(self.pistol_icon, (preview_size, preview_size)), preview_rect)
+                        elif name == 'Axe' and self.axe_icon is not None:
+                            surf.blit(pygame.transform.scale(self.axe_icon, (preview_size, preview_size)), preview_rect)
+                        elif name == 'Thruster' and self.thruster_icon is not None:
+                            surf.blit(pygame.transform.scale(self.thruster_icon, (preview_size, preview_size)), preview_rect)
+                        elif name == 'NPC':
+                            cx = preview_rect.centerx
+                            cy = preview_rect.centery
+                            head_r = max(2, int(preview_size * 0.18))
+                            torso_w = max(4, int(preview_size * 0.32))
+                            torso_h = max(6, int(preview_size * 0.38))
+                            head_center = (cx, cy - head_r)
+                            torso_rect = pygame.Rect(0, 0, torso_w, torso_h)
+                            torso_rect.center = (cx, cy + torso_h // 6)
+                            pygame.draw.circle(surf, (16, 40, 18), head_center, head_r)
+                            pygame.draw.circle(surf, (54, 160, 60), head_center, max(1, head_r - 2))
+                            pygame.draw.rect(surf, (16, 40, 18), torso_rect)
+                            inner = torso_rect.inflate(-max(2, scaling.to_screen_length(1)), -max(2, scaling.to_screen_length(1)))
+                            pygame.draw.rect(surf, (54, 160, 60), inner)
+                        else:
+                            pygame.draw.rect(surf, (30, 10, 10), preview_rect)
+                            inner = preview_rect.inflate(-max(3, scaling.to_screen_length(4)), -max(3, scaling.to_screen_length(4)))
+                            pygame.draw.rect(surf, (180, 30, 30), inner)
+                    except Exception:
+                        pass
 
-                preview_size =min (120 ,r .height -12 ,int (menu_w *0.25 ))
-                preview_rect =pygame .Rect (r .x +12 ,r .y +(r .height -preview_size )//2 ,preview_size ,preview_size )
-                if name =='Wielding Tool'and self .welding_icon is not None :
-                    surf .blit (pygame .transform .scale (self .welding_icon ,(preview_size ,preview_size )),preview_rect )
-                elif name =='Pistol'and self .pistol_icon is not None :
-                    surf .blit (pygame .transform .scale (self .pistol_icon ,(preview_size ,preview_size )),preview_rect )
-                elif name == 'Axe' and self .axe_icon is not None :
-                    surf .blit (pygame .transform .scale (self .axe_icon ,(preview_size ,preview_size )),preview_rect )
-                elif name =='Thruster'and self .thruster_icon is not None :
-                    surf .blit (pygame .transform .scale (self .thruster_icon ,(preview_size ,preview_size )),preview_rect )
-                elif name =='NPC':
-                    # draw a simple humanoid preview (head + torso)
-                    cx = preview_rect.centerx
-                    cy = preview_rect.centery
-                    head_r = max(2, int(preview_size * 0.18))
-                    torso_w = max(4, int(preview_size * 0.32))
-                    torso_h = max(6, int(preview_size * 0.38))
-                    head_center = (cx, cy - head_r)
-                    torso_rect = pygame.Rect(0,0,torso_w,torso_h)
-                    torso_rect.center = (cx, cy + torso_h//6)
-                    pygame.draw.circle(surf, (16,40,18), head_center, head_r)
-                    pygame.draw.circle(surf, (54,160,60), head_center, max(1, head_r-2))
-                    pygame.draw.rect(surf, (16,40,18), torso_rect)
-                    inner = torso_rect.inflate(-max(2, scaling.to_screen_length(1)), -max(2, scaling.to_screen_length(1)))
-                    pygame.draw.rect(surf, (54,160,60), inner)
-                else :
-                    pygame .draw .rect (surf ,(30 ,10 ,10 ),preview_rect )
-                    inner =preview_rect .inflate (-max (3 ,scaling .to_screen_length (4 )),-max (3 ,scaling .to_screen_length (4 )))
-                    pygame .draw .rect (surf ,(180 ,30 ,30 ),inner )
+                    # label centered below preview
+                    try:
+                        font = pygame.font.SysFont('Arial', max(12, scaling.to_screen_length(14)))
+                        txt = font.render(name, True, (230, 230, 230))
+                        surf.blit(txt, (r.x + (r.w - txt.get_width()) // 2, r.y + preview_size + 8))
+                    except Exception:
+                        pass
 
+                # hint
+                try:
+                    font = pygame.font.SysFont('Arial', max(12, scaling.to_screen_length(14)))
+                    hint = font.render('Left-click to select. After selection: Right-click to spawn repeatedly. Q/Esc to close.', True, (190, 190, 190))
+                    surf.blit(hint, (menu_x + 24, menu_y + menu_h - 28))
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
-                try :
-                    font =pygame .font .SysFont ('Arial',max (18 ,scaling .to_screen_length (18 )))
-                    txt =font .render (name ,True ,(230 ,230 ,230 ))
-                    surf .blit (txt ,(preview_rect .right +16 ,r .y +(r .height -txt .get_height ())//2 ))
-                except Exception :
-                    pass 
-
-
-            try :
-                font =pygame .font .SysFont ('Arial',max (12 ,scaling .to_screen_length (14 )))
-                hint =font .render ('Left-click to select. After selection: Right-click to spawn repeatedly. Q/Esc to close.',True ,(190 ,190 ,190 ))
-                surf .blit (hint ,(menu_x +24 ,menu_y +menu_h -28 ))
-            except Exception :
-                pass 
-
-            return 
+            return
 
 
         if not self .equipped :
