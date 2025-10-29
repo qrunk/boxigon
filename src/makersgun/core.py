@@ -4,7 +4,7 @@ from src import scaling
 from src.npc import NPC
 from src.worldman import get_world_manager
 from src import colison
-from .brick import Brick
+from .brick import Brick, draw_brick_pattern
 
 
 class MakersGun:
@@ -867,23 +867,47 @@ class MakersGun:
                             elif name == 'Thruster' and self.thruster_icon is not None:
                                 ui.blit(pygame.transform.scale(self.thruster_icon, (preview_size, preview_size)), preview_rect)
                             elif name == 'NPC':
-                                cx = preview_rect.centerx
-                                cy = preview_rect.centery
-                                head_r = max(3, int(preview_size * 0.18))
-                                torso_w = max(6, int(preview_size * 0.32))
-                                torso_h = max(8, int(preview_size * 0.38))
-                                head_center = (cx, cy - head_r)
-                                torso_rect = pygame.Rect(0, 0, torso_w, torso_h)
-                                torso_rect.center = (cx, cy + torso_h // 6)
-                                pygame.draw.circle(ui, (16, 40, 18), head_center, head_r)
-                                pygame.draw.circle(ui, (54, 160, 60), head_center, max(1, head_r - 2))
-                                pygame.draw.rect(ui, (16, 40, 18), torso_rect)
-                                inner = torso_rect.inflate(-max(2, scaling.to_screen_length(1)), -max(2, scaling.to_screen_length(1)))
-                                pygame.draw.rect(ui, (54, 160, 60), inner)
+                                # Draw the NPC head as the preview (outline, fill, eye)
+                                try:
+                                    cx = preview_rect.centerx
+                                    cy = preview_rect.centery
+                                    hs = max(8, preview_size)
+                                    head_rect = pygame.Rect(0, 0, hs, hs)
+                                    head_rect.center = (cx, cy)
+                                    outline_col = (16, 40, 18)
+                                    fill_col = (54, 160, 60)
+                                    pygame.draw.rect(ui, outline_col, head_rect, border_radius=4)
+                                    inner = head_rect.inflate(-max(2, scaling.to_screen_length(3)), -max(2, scaling.to_screen_length(3)))
+                                    pygame.draw.rect(ui, fill_col, inner, border_radius=3)
+                                    # simple eye (left)
+                                    eye_w = max(1, scaling.to_screen_length(4))
+                                    eye_x = int(cx - hs * 0.16)
+                                    eye_y = int(cy - hs * 0.12)
+                                    pygame.draw.rect(ui, (10, 10, 10), pygame.Rect(eye_x, eye_y, eye_w, eye_w))
+                                except Exception:
+                                    # fallback to older simplistic icon if something goes wrong
+                                    cx = preview_rect.centerx
+                                    cy = preview_rect.centery
+                                    head_r = max(3, int(preview_size * 0.18))
+                                    torso_w = max(6, int(preview_size * 0.32))
+                                    torso_h = max(8, int(preview_size * 0.38))
+                                    head_center = (cx, cy - head_r)
+                                    torso_rect = pygame.Rect(0, 0, torso_w, torso_h)
+                                    torso_rect.center = (cx, cy + torso_h // 6)
+                                    pygame.draw.circle(ui, (16, 40, 18), head_center, head_r)
+                                    pygame.draw.circle(ui, (54, 160, 60), head_center, max(1, head_r - 2))
+                                    pygame.draw.rect(ui, (16, 40, 18), torso_rect)
+                                    inner = torso_rect.inflate(-max(2, scaling.to_screen_length(1)), -max(2, scaling.to_screen_length(1)))
+                                    pygame.draw.rect(ui, (54, 160, 60), inner)
                             else:
-                                pygame.draw.rect(ui, (150, 30, 30), preview_rect, border_radius=6)
-                                inner = preview_rect.inflate(-max(4, scaling.to_screen_length(6)), -max(4, scaling.to_screen_length(6)))
-                                pygame.draw.rect(ui, (200, 60, 60), inner, border_radius=4)
+                                # draw brick preview using shared pattern renderer
+                                try:
+                                    draw_brick_pattern(ui, preview_rect, color=(150, 30, 30), outline=(30, 10, 10), border_radius=6)
+                                except Exception:
+                                    # fallback simple rect
+                                    pygame.draw.rect(ui, (150, 30, 30), preview_rect, border_radius=6)
+                                    inner = preview_rect.inflate(-max(4, scaling.to_screen_length(6)), -max(4, scaling.to_screen_length(6)))
+                                    pygame.draw.rect(ui, (200, 60, 60), inner, border_radius=4)
                         except Exception:
                             pass
 
@@ -966,15 +990,18 @@ class MakersGun:
                     try:
                         cx = pr.centerx
                         cy = pr.centery
-                        head_r = max(2, ps // 3)
-                        head_center = (cx, cy - head_r // 2)
-                        pygame.draw.circle(surf, (16, 40, 18), head_center, head_r)
-                        pygame.draw.circle(surf, (54, 160, 60), head_center, max(1, head_r - 1))
-                        torso = pr.inflate(-ps // 4, -ps // 4)
-                        torso.centery = cy + head_r // 2
-                        pygame.draw.rect(surf, (16, 40, 18), torso)
-                        inner = torso.inflate(-1, -1)
-                        pygame.draw.rect(surf, (54, 160, 60), inner)
+                        hs = max(6, ps)
+                        head_rect = pygame.Rect(0, 0, hs, hs)
+                        head_rect.center = (cx, cy)
+                        outline_col = (16, 40, 18)
+                        fill_col = (54, 160, 60)
+                        pygame.draw.rect(surf, outline_col, head_rect, border_radius=3)
+                        inner = head_rect.inflate(-max(1, scaling.to_screen_length(2)), -max(1, scaling.to_screen_length(2)))
+                        pygame.draw.rect(surf, fill_col, inner, border_radius=2)
+                        eye_w = max(1, scaling.to_screen_length(3))
+                        eye_x = int(cx - hs * 0.16)
+                        eye_y = int(cy - hs * 0.12)
+                        pygame.draw.rect(surf, (10, 10, 10), pygame.Rect(eye_x, eye_y, eye_w, eye_w))
                     except Exception:
                         pygame.draw.rect(surf, (30, 10, 10), pr)
                         inner = pr.inflate(-2, -2)
@@ -988,8 +1015,11 @@ class MakersGun:
                         inner = pr.inflate(-2, -2)
                         pygame.draw.rect(surf, (180, 30, 30), inner)
                 else:
-                    pygame.draw.rect(surf, (30, 10, 10), pr)
-                    inner = pr.inflate(-2, -2)
-                    pygame.draw.rect(surf, (180, 30, 30), inner)
+                    try:
+                        draw_brick_pattern(surf, pr, color=(180, 30, 30), outline=(30, 10, 10), border_radius=4)
+                    except Exception:
+                        pygame.draw.rect(surf, (30, 10, 10), pr)
+                        inner = pr.inflate(-2, -2)
+                        pygame.draw.rect(surf, (180, 30, 30), inner)
             except Exception:
                 pass

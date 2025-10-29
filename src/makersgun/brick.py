@@ -175,5 +175,110 @@ class Brick:
         rect = pygame.Rect(0, 0, int(s), int(s))
         rect.center = (int(center.x), int(center.y))
         pygame.draw.rect(surf, self.outline, rect)
-        inner = rect.inflate(-max(2, scaling.to_screen_length(3)), -max(2, scaling.to_screen_length(3)))
+        # inner drawing area (accounts for outline thickness)
+        inner = rect.inflate(-max(2, int(scaling.to_screen_length(3))), -max(2, int(scaling.to_screen_length(3))))
+
+        # Base brick color fill
         pygame.draw.rect(surf, self.color, inner)
+
+        # Brick pattern: staggered rows with light mortar lines
+        mortar_color = (220, 220, 220)
+        mortar_thickness = max(1, int(scaling.to_screen_length(2)))
+
+        # Determine rows/cols based on pixel size for a reasonable look
+        pw = max(2, inner.width)  # pixel width
+        ph = max(2, inner.height)
+        rows = max(2, pw // 20)
+        cols = max(2, pw // 15)
+
+        brick_h = ph / rows
+        brick_w = inner.width / cols
+
+        # Draw horizontal mortar lines
+        for r in range(rows + 1):
+            y = inner.top + int(round(r * brick_h))
+            pygame.draw.rect(surf, mortar_color, pygame.Rect(inner.left, y - mortar_thickness // 2, inner.width, mortar_thickness))
+
+        # Draw vertical mortar lines for each row, staggered every other row
+        for r in range(rows):
+            row_top = inner.top + int(round(r * brick_h))
+            row_h = int(round(brick_h))
+            offset = 0 if (r % 2) == 0 else int(round(brick_w / 2))
+
+            # start a bit left to ensure full coverage when offset is used
+            start_x = inner.left - offset
+            # draw vertical separators across the row
+            c = 0
+            while True:
+                x = start_x + int(round(c * brick_w))
+                if x > inner.right:
+                    break
+                # Draw the vertical mortar segment clipped to the row height
+                seg_rect = pygame.Rect(x - mortar_thickness // 2, row_top, mortar_thickness, row_h)
+                # Clip the rect to inner area to avoid drawing outside
+                seg_rect.clamp_ip(inner)
+                if seg_rect.width > 0 and seg_rect.height > 0:
+                    pygame.draw.rect(surf, mortar_color, seg_rect)
+                c += 1
+
+
+def draw_brick_pattern(surf, rect, color=None, outline=None, border_radius=4):
+    """Draw a brick-like pattern into the given pygame.Rect on surface.
+
+    rect is in surface pixel coordinates. color/outline default to typical
+    brick colors when not provided.
+    """
+    try:
+        if color is None:
+            color = (180, 30, 30)
+        if outline is None:
+            outline = (30, 10, 10)
+
+        # Outline
+        pygame.draw.rect(surf, outline, rect, border_radius=border_radius)
+
+        # Inner area
+        inner = rect.inflate(-max(2, int(scaling.to_screen_length(3))), -max(2, int(scaling.to_screen_length(3))))
+        pygame.draw.rect(surf, color, inner, border_radius=max(0, border_radius - 1))
+
+        # Brick pattern (mortar lines)
+        mortar_color = (220, 220, 220)
+        mortar_thickness = max(1, int(scaling.to_screen_length(2)))
+
+        pw = max(2, inner.width)
+        ph = max(2, inner.height)
+        rows = max(2, pw // 20)
+        cols = max(2, pw // 15)
+
+        brick_h = ph / rows
+        brick_w = inner.width / cols
+
+        # Horizontal mortar
+        for r in range(rows + 1):
+            y = inner.top + int(round(r * brick_h))
+            pygame.draw.rect(surf, mortar_color, pygame.Rect(inner.left, y - mortar_thickness // 2, inner.width, mortar_thickness))
+
+        # Vertical mortar per row (staggered)
+        for r in range(rows):
+            row_top = inner.top + int(round(r * brick_h))
+            row_h = int(round(brick_h))
+            offset = 0 if (r % 2) == 0 else int(round(brick_w / 2))
+            start_x = inner.left - offset
+            c = 0
+            while True:
+                x = start_x + int(round(c * brick_w))
+                if x > inner.right:
+                    break
+                seg_rect = pygame.Rect(x - mortar_thickness // 2, row_top, mortar_thickness, row_h)
+                seg_rect.clamp_ip(inner)
+                if seg_rect.width > 0 and seg_rect.height > 0:
+                    pygame.draw.rect(surf, mortar_color, seg_rect)
+                c += 1
+    except Exception:
+        # Best-effort: fallback to simple rect if pattern drawing fails
+        try:
+            if color is None:
+                color = (180, 30, 30)
+            pygame.draw.rect(surf, color, rect)
+        except Exception:
+            pass
