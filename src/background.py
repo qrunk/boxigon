@@ -30,24 +30,40 @@ class Background :
         return 
 
     def draw (self ,surf ):
+        # Draw the background grid directly to the target surface so it
+        # always fills the whole window regardless of the letterbox/scale
+        sw, sh = surf.get_size()
+        if sw <= 0 or sh <= 0:
+            return
 
+        surf.fill((10, 18, 12))
 
-        sw =int (round (self .width *scaling .get_scale ()))
-        sh =int (round (self .height *scaling .get_scale ()))
-        if sw <=0 or sh <=0 :
-            return 
-        cur_scale =scaling .get_scale ()
+        # Draw the slightly darker center rectangle scaled from design coords
+        # Map design-space rect to screen-space
+        ox, oy = scaling.get_offset()
+        cur_scale = scaling.get_scale()
+        center_rect = pygame.Rect(
+            int(round(self.width * 0.05 * cur_scale + ox)),
+            int(round(self.height * 0.1 * cur_scale + oy)),
+            int(round(self.width * 0.9 * cur_scale)),
+            int(round(self.height * 0.7 * cur_scale)),
+        )
+        pygame.draw.rect(surf, (6, 10, 8), center_rect)
 
-        if self ._cached_scaled is None or self ._cached_scale !=cur_scale :
-            try :
-                self ._cached_scaled =pygame .transform .smoothscale (self ._design_surf ,(sw ,sh ))
-            except Exception :
-                self ._cached_scaled =pygame .transform .scale (self ._design_surf ,(sw ,sh ))
-            self ._cached_scale =cur_scale 
+        # Draw grid lines across entire surface. Use scaled grid spacing so
+        # the grid remains consistent with design units when scaling is used.
+        color = (38, 180, 85)
+        grid_px = max(1, int(round(self.grid * cur_scale)))
 
-        ox ,oy =scaling .get_offset ()
-        surf .fill ((10 ,18 ,12 ))
-        surf .blit (self ._cached_scaled ,(int (ox ),int (oy )))
+        x = 0
+        while x <= sw:
+            pygame.draw.line(surf, color, (x, 0), (x, sh), 1)
+            x += grid_px
+
+        y = 0
+        while y <= sh:
+            pygame.draw.line(surf, color, (0, y), (sw, y), 1)
+            y += grid_px
 
     def _render_design_surface (self ):
         """Render the static background into the design-space surface."""

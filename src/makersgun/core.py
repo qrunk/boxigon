@@ -45,6 +45,7 @@ class MakersGun:
         self.icon = None
         self.welding_icon = None
         self.pistol_icon = None
+        self.car_icon = None
         try:
             base = os.path.join(os.path.dirname(__file__), 'assets')
 
@@ -60,6 +61,12 @@ class MakersGun:
             ak47_path = os.path.join(base, 'ak47.png')
             if os.path.exists(ak47_path):
                 self.ak47_icon = pygame.image.load(ak47_path).convert_alpha()
+            car_path = os.path.join(base, 'car.png')
+            if os.path.exists(car_path):
+                try:
+                    self.car_icon = pygame.image.load(car_path).convert_alpha()
+                except Exception:
+                    self.car_icon = None
             thruster_path = os.path.join(base, 'thruster.png')
             if os.path.exists(thruster_path):
                 self.thruster_icon = pygame.image.load(thruster_path).convert_alpha()
@@ -73,10 +80,11 @@ class MakersGun:
 
         self.menu_w = 96
         self.menu_h = 40
-        # Tabs for spawn menu
-        self.menu_tabs = ['Objects', 'Weapons', 'Items']
+        # Tabs for spawn menu (add Vehicles category)
+        self.menu_tabs = ['Objects', 'Vehicles', 'Weapons', 'Items']
         self.menu_tab_items = {
             'Objects': ['Brick', 'Crate', 'NPC'],
+            'Vehicles': ['Bike', 'Car'],
             'Weapons': ['Wielding Tool', 'Pistol', 'AK47', 'Axe'],
             'Items': ['Thruster']
         }
@@ -104,6 +112,98 @@ class MakersGun:
             try:
                 self._prev_cursor_visible = pygame.mouse.get_visible()
                 pygame.mouse.set_visible(False)
+            except Exception:
+                pass
+
+            # Vehicle vs Vehicle collisions (car <-> bike etc.). Iterate pairs of
+            # vehicles and resolve simple particle-particle collisions between
+            # their parts. This is a lightweight positional solver intended to
+            # prevent vehicles from overlapping and to produce a small bounce.
+            try:
+                vehicles = []
+                try:
+                    from src.vehicles.bike import Bike
+                except Exception:
+                    Bike = None
+                try:
+                    from src.vehicles.car import Car
+                except Exception:
+                    Car = None
+
+                for b in self.bricks:
+                    try:
+                        if (Bike is not None and isinstance(b, Bike)) or (Car is not None and isinstance(b, Car)):
+                            vehicles.append(b)
+                    except Exception:
+                        continue
+
+                # pairwise vehicle collision resolution
+                for vi in range(len(vehicles)):
+                    for vj in range(vi + 1, len(vehicles)):
+                        va = vehicles[vi]
+                        vb = vehicles[vj]
+                        try:
+                            parts_a = getattr(va, 'parts', []) or []
+                            parts_b = getattr(vb, 'parts', []) or []
+                        except Exception:
+                            continue
+
+                        for pa in parts_a:
+                            for pb in parts_b:
+                                try:
+                                    # determine radii heuristically
+                                    def _part_radius(obj, part):
+                                        try:
+                                            if hasattr(obj, 'front_wheel') and (part is getattr(obj, 'front_wheel', None) or part is getattr(obj, 'back_wheel', None)):
+                                                return float(getattr(obj, 'size', 40)) * 0.15
+                                            if hasattr(obj, 'seat') and part is getattr(obj, 'seat', None):
+                                                return float(getattr(obj, 'size', 40)) * 0.09
+                                            return float(getattr(obj, 'size', 40)) * 0.12
+                                        except Exception:
+                                            return 20.0
+
+                                    ra = _part_radius(va, pa)
+                                    rb = _part_radius(vb, pb)
+
+                                    dvec = pa.pos - pb.pos
+                                    dist = dvec.length()
+                                    if dist <= 0.0:
+                                        # push them slightly apart along x to avoid NaNs
+                                        n = pygame.math.Vector2(1.0, 0.0)
+                                        penetration = (ra + rb)
+                                    else:
+                                        n = dvec / dist
+                                        penetration = (ra + rb) - dist
+
+                                    if penetration > 0.0:
+                                        ma = max(1e-6, getattr(pa, 'mass', 1.0))
+                                        mb = max(1e-6, getattr(pb, 'mass', 1.0))
+                                        total = ma + mb
+                                        try:
+                                            pa.pos += n * (penetration * (mb / total))
+                                            pb.pos -= n * (penetration * (ma / total))
+                                        except Exception:
+                                            continue
+
+                                        # adjust velocities (pos - prev) to remove approaching normal
+                                        vela = pa.pos - pa.prev
+                                        velb = pb.pos - pb.prev
+                                        rel = vela - velb
+                                        rv = rel.x * n.x + rel.y * n.y
+                                        if rv < 0:
+                                            bounce = 0.2
+                                            vela = vela - rv * n
+                                            velb = velb + rv * n
+                                            vela += -rv * n * bounce * (mb / total)
+                                            velb += rv * n * bounce * (ma / total)
+
+                                        try:
+                                            pa.prev = pa.pos - vela
+                                            pb.prev = pb.pos - velb
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    continue
             except Exception:
                 pass
 
@@ -136,6 +236,36 @@ class MakersGun:
                 mgr = get_world_manager()
                 if mgr.current_name:
                     mgr.add_brick({"type": "crate", "x": float(world_pos[0]) if isinstance(world_pos, (list, tuple)) else float(world_pos.x), "y": float(world_pos[1]) if isinstance(world_pos, (list, tuple)) else float(world_pos.y), "size": 48})
+                    mgr.save_now()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def spawn_bike(self, world_pos):
+        try:
+            from src.vehicles.bike import Bike
+            b = Bike(world_pos, size=96)
+            self.bricks.append(b)
+            try:
+                mgr = get_world_manager()
+                if mgr.current_name:
+                    mgr.add_brick({"type": "bike", "x": float(world_pos[0]) if isinstance(world_pos, (list, tuple)) else float(world_pos.x), "y": float(world_pos[1]) if isinstance(world_pos, (list, tuple)) else float(world_pos.y), "size": 96})
+                    mgr.save_now()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def spawn_car(self, world_pos):
+        try:
+            from src.vehicles.car import Car
+            c = Car(world_pos, size=220)
+            self.bricks.append(c)
+            try:
+                mgr = get_world_manager()
+                if mgr.current_name:
+                    mgr.add_brick({"type": "car", "x": float(world_pos[0]) if isinstance(world_pos, (list, tuple)) else float(world_pos.x), "y": float(world_pos[1]) if isinstance(world_pos, (list, tuple)) else float(world_pos.y), "size": 220})
                     mgr.save_now()
             except Exception:
                 pass
@@ -531,6 +661,14 @@ class MakersGun:
                     self.spawn_thruster(pos)
                     consumed = True
                     return consumed
+                elif self.menu_selected == 'Bike':
+                    self.spawn_bike(pos)
+                    consumed = True
+                    return consumed
+                elif self.menu_selected == 'Car':
+                    self.spawn_car(pos)
+                    consumed = True
+                    return consumed
                 elif self.menu_selected == 'NPC':
                     try:
                         px, py = pos
@@ -697,6 +835,11 @@ class MakersGun:
             if event.button == 1 and self.dragging:
 
                 self.dragging = False
+                # If we were dragging a brick-group/brick apply a small
+                # damp to the motion so it doesn't teleport. If we were
+                # dragging an NPC, try to auto-mount them into any nearby
+                # vehicle (bike or car) so dragging an NPC into a vehicle
+                # seats them and allows driving.
                 if self.target and self.target[0] == 'brick':
 
                     ttype = self.target[0]
@@ -722,6 +865,40 @@ class MakersGun:
                                     queue.append(child)
                         except Exception:
                             pass
+                elif self.target and self.target[0] == 'npc':
+                    try:
+                        npc = self.target[1]
+                        # torso/center particle
+                        try:
+                            ppos = npc.particles[2].pos
+                        except Exception:
+                            try:
+                                ppos = npc.particles[0].pos
+                            except Exception:
+                                ppos = None
+
+                        if ppos is not None:
+                            # search nearby bricks for a vehicle with a seat
+                            for b in list(self.bricks):
+                                try:
+                                    # vehicles expose a `seat` Particle and a `mount()` method
+                                    if not hasattr(b, 'seat') or not hasattr(b, 'mount'):
+                                        continue
+                                    # distance threshold: ~30% of vehicle size
+                                    thresh = getattr(b, 'size', 40) * 0.35
+                                    d = (b.seat.pos - ppos).length()
+                                    if d <= thresh:
+                                        try:
+                                            b.mount(npc)
+                                            # mark consumed so we don't also nudge npc physics
+                                            consumed = True
+                                            break
+                                        except Exception:
+                                            continue
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
                 self.target = None
                 consumed = True
                 return consumed
@@ -756,6 +933,92 @@ class MakersGun:
 
         for b in self.bricks:
             b.update(dt, floor_y=floor, other_bricks=self.bricks)
+
+        # Vehicle vs Vehicle collisions: always run when there are multiple
+        # vehicles in the world so cars/bikes don't pass through each other.
+        try:
+            vehicles = []
+            try:
+                from src.vehicles.bike import Bike
+            except Exception:
+                Bike = None
+            try:
+                from src.vehicles.car import Car
+            except Exception:
+                Car = None
+
+            for b in self.bricks:
+                try:
+                    if (Bike is not None and isinstance(b, Bike)) or (Car is not None and isinstance(b, Car)):
+                        vehicles.append(b)
+                except Exception:
+                    continue
+
+            for vi in range(len(vehicles)):
+                for vj in range(vi + 1, len(vehicles)):
+                    va = vehicles[vi]
+                    vb = vehicles[vj]
+                    try:
+                        parts_a = getattr(va, 'parts', []) or []
+                        parts_b = getattr(vb, 'parts', []) or []
+                    except Exception:
+                        continue
+
+                    for pa in parts_a:
+                        for pb in parts_b:
+                            try:
+                                def _part_radius(obj, part):
+                                    try:
+                                        if hasattr(obj, 'front_wheel') and (part is getattr(obj, 'front_wheel', None) or part is getattr(obj, 'back_wheel', None)):
+                                            return float(getattr(obj, 'size', 40)) * 0.15
+                                        if hasattr(obj, 'seat') and part is getattr(obj, 'seat', None):
+                                            return float(getattr(obj, 'size', 40)) * 0.09
+                                        return float(getattr(obj, 'size', 40)) * 0.12
+                                    except Exception:
+                                        return 20.0
+
+                                ra = _part_radius(va, pa)
+                                rb = _part_radius(vb, pb)
+
+                                dvec = pa.pos - pb.pos
+                                dist = dvec.length()
+                                if dist <= 0.0:
+                                    n = pygame.math.Vector2(1.0, 0.0)
+                                    penetration = (ra + rb)
+                                else:
+                                    n = dvec / dist
+                                    penetration = (ra + rb) - dist
+
+                                if penetration > 0.0:
+                                    ma = max(1e-6, getattr(pa, 'mass', 1.0))
+                                    mb = max(1e-6, getattr(pb, 'mass', 1.0))
+                                    total = ma + mb
+                                    try:
+                                        pa.pos += n * (penetration * (mb / total))
+                                        pb.pos -= n * (penetration * (ma / total))
+                                    except Exception:
+                                        continue
+
+                                    vela = pa.pos - pa.prev
+                                    velb = pb.pos - pb.prev
+                                    rel = vela - velb
+                                    rv = rel.x * n.x + rel.y * n.y
+                                    if rv < 0:
+                                        bounce = 0.2
+                                        vela = vela - rv * n
+                                        velb = velb + rv * n
+                                        vela += -rv * n * bounce * (mb / total)
+                                        velb += rv * n * bounce * (ma / total)
+
+                                    try:
+                                        pa.prev = pa.pos - vela
+                                        pb.prev = pb.pos - velb
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                continue
+        except Exception:
+            pass
 
         # Process objects that have been marked as broken by their own
         # update logic. If an object sets `._broken = True` and attaches
@@ -793,6 +1056,187 @@ class MakersGun:
                     colison.collide_particles_with_bricks(npc.particles, self.bricks, iterations=2)
             except Exception:
                 pass
+
+            # Vehicle -> NPC collisions that cause bleeding (e.g. car running over an NPC).
+            # We check vehicle parts against individual NPC particles; when a fast-moving
+            # vehicle part overlaps an NPC particle we trigger the NPC hit logic which
+            # starts bleeding and applies a small immediate HP loss.
+            try:
+                try:
+                    from src.vehicles.bike import Bike
+                except Exception:
+                    Bike = None
+                try:
+                    from src.vehicles.car import Car
+                except Exception:
+                    Car = None
+
+                for b in list(self.bricks):
+                    try:
+                        if not (isinstance(b, Bike) or isinstance(b, Car)):
+                            continue
+                    except Exception:
+                        # if classes unavailable, skip
+                        continue
+
+                    parts = getattr(b, 'parts', []) or []
+                    for part in parts:
+                        # choose an effective collision radius per part (defensive)
+                        try:
+                            if hasattr(b, 'front_wheel') and (part is getattr(b, 'front_wheel', None) or part is getattr(b, 'back_wheel', None)):
+                                vr = float(getattr(b, 'size', 40)) * 0.15
+                            elif hasattr(b, 'seat') and part is getattr(b, 'seat', None):
+                                vr = float(getattr(b, 'size', 40)) * 0.09
+                            else:
+                                vr = float(getattr(b, 'size', 40)) * 0.12
+                        except Exception:
+                            vr = 20.0
+
+                        # part velocity magnitude (px/frame approx -> px/s scaled by dt is not available here)
+                        try:
+                            vvel = (part.pos - part.prev).length()
+                        except Exception:
+                            vvel = 0.0
+
+                        # helpful thresholds (lowered so slow cars still count)
+                        min_part_speed = 30.0
+                        min_drive_speed = 60.0
+
+                        for npc in list(npcs):
+                            # Particle-level collision checks
+                            try:
+                                for npart in npc.particles:
+                                    try:
+                                        # infer npc particle radius (use NPC.size as fallback)
+                                        nr = getattr(npart, 'size', None)
+                                        if nr is None:
+                                            nr = getattr(npc, 'size', 14)
+                                        # many codepaths store 'size' as full diameter
+                                        try:
+                                            nr = float(nr) * 0.5
+                                        except Exception:
+                                            nr = 8.0
+                                    except Exception:
+                                        nr = 8.0
+
+                                    # distance test
+                                    try:
+                                        d = (part.pos - npart.pos).length()
+                                    except Exception:
+                                        continue
+
+                                    if d <= (vr + nr):
+                                        # require some minimum speed to count as a run-over
+                                        if vvel > min_part_speed or abs(getattr(b, 'drive_vel', 0.0)) > min_drive_speed:
+                                            try:
+                                                # apply the NPC hit effect at the contact point
+                                                npc.apply_bullet_hit((part.pos.x, part.pos.y))
+                                            except Exception:
+                                                # best-effort fallback: start bleeding and reduce HP
+                                                try:
+                                                    npc.bleed_time = max(getattr(npc, 'bleed_time', 0.0), 2.5)
+                                                    npc.last_hit_pos = part.pos.copy()
+                                                    npc.hp -= 10.0
+                                                except Exception:
+                                                    pass
+                                            # avoid multiple hits from the same part in a single update
+                                            break
+                            except Exception:
+                                # continue to next npc if particle iteration fails
+                                continue
+
+                            # Additional coarse check: if vehicle root is overlapping NPC torso
+                            # this helps detect run-overs when parts don't align with particles.
+                            try:
+                                try:
+                                    torso = npc.particles[2].pos
+                                except Exception:
+                                    torso = npc.particles[0].pos
+                                root_dist = (getattr(b, 'p', b).pos - torso).length()
+                                if root_dist <= max(1.0, float(getattr(b, 'size', 40)) * 0.4):
+                                    if abs(getattr(b, 'drive_vel', 0.0)) > min_drive_speed:
+                                        try:
+                                            npc.apply_bullet_hit((torso.x, torso.y))
+                                        except Exception:
+                                            try:
+                                                npc.bleed_time = max(getattr(npc, 'bleed_time', 0.0), 2.5)
+                                                npc.last_hit_pos = torso.copy()
+                                                npc.hp -= 10.0
+                                            except Exception:
+                                                pass
+                            except Exception:
+                                pass
+                            
+            except Exception:
+                pass
+
+            # Attach NPCs to vehicles when they reach the seat
+            try:
+                from src.vehicles.bike import Bike
+            except Exception:
+                Bike = None
+
+            if Bike is not None:
+                try:
+                    for b in self.bricks:
+                        try:
+                            if not isinstance(b, Bike):
+                                continue
+                            seat_pos = b.seat.pos
+                            for npc in npcs:
+                                try:
+                                    try:
+                                        torso = npc.particles[2].pos
+                                    except Exception:
+                                        torso = npc.particles[0].pos
+                                    d = (torso - seat_pos).length()
+                                    # attach/detach thresholds scaled to bike size
+                                    try:
+                                        attach_thresh = max(28.0, float(getattr(b, 'size', 96)) * 0.18)
+                                        detach_thresh = max(40.0, float(getattr(b, 'size', 96)) * 0.25)
+                                    except Exception:
+                                        attach_thresh = 28.0
+                                        detach_thresh = 40.0
+
+                                    if d < attach_thresh:
+                                        if b.rider is None:
+                                            try:
+                                                # ask the bike to mount the NPC (snaps into pose)
+                                                if hasattr(b, 'mount'):
+                                                    b.mount(npc)
+                                                else:
+                                                    b.rider = npc
+                                                    try:
+                                                        npc.stand_enabled = False
+                                                    except Exception:
+                                                        pass
+                                            except Exception:
+                                                try:
+                                                    b.rider = npc
+                                                except Exception:
+                                                    pass
+                                    else:
+                                        if b.rider is npc and d > detach_thresh:
+                                            try:
+                                                if hasattr(b, 'unmount'):
+                                                    b.unmount()
+                                                else:
+                                                    b.rider = None
+                                                    try:
+                                                        npc.stand_enabled = True
+                                                    except Exception:
+                                                        pass
+                                            except Exception:
+                                                try:
+                                                    b.rider = None
+                                                except Exception:
+                                                    pass
+                                except Exception:
+                                    continue
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
 
         if self.welding_tool:
             from src.wield import WeldingTool
@@ -1086,6 +1530,24 @@ class MakersGun:
                                 ui.blit(pygame.transform.scale(self.axe_icon, (preview_size, preview_size)), preview_rect)
                             elif name == 'Thruster' and self.thruster_icon is not None:
                                 ui.blit(pygame.transform.scale(self.thruster_icon, (preview_size, preview_size)), preview_rect)
+                            elif name == 'Car':
+                                # prefer makersgun-local icon, fall back to vehicle asset
+                                icon = self.car_icon
+                                if icon is None:
+                                    try:
+                                        from src.vehicles.car import Car
+                                        # try to load vehicle sprite directly from vehicles assets
+                                        vpath = os.path.join(os.path.dirname(__file__), '..', 'vehicles', 'assets', 'car.png')
+                                        vpath = os.path.normpath(vpath)
+                                        if os.path.exists(vpath):
+                                            icon = pygame.image.load(vpath).convert_alpha()
+                                    except Exception:
+                                        icon = None
+                                if icon is not None:
+                                    try:
+                                        ui.blit(pygame.transform.scale(icon, (preview_size, preview_size)), preview_rect)
+                                    except Exception:
+                                        pass
                             elif name == 'NPC':
                                 # Draw the NPC head as the preview (outline, fill, eye)
                                 try:
@@ -1124,6 +1586,21 @@ class MakersGun:
                                     draw_crate_pattern(ui, preview_rect, color=(160, 110, 60), outline=(60, 40, 20), border_radius=6)
                                 except Exception:
                                     pygame.draw.rect(ui, (160, 110, 60), preview_rect, border_radius=6)
+                            elif name == 'Bike':
+                                # basic bike preview: small frame + two wheels
+                                try:
+                                    cx = preview_rect.centerx
+                                    cy = preview_rect.centery
+                                    wr = max(6, preview_size // 3)
+                                    left = (cx - wr - 6, cy + 6)
+                                    right = (cx + wr + 6, cy + 6)
+                                    pygame.draw.circle(ui, (10, 10, 10), left, wr)
+                                    pygame.draw.circle(ui, (10, 10, 10), right, wr)
+                                    pygame.draw.line(ui, (30, 30, 30), (left[0] + wr, left[1] - 2), (cx, cy - 8), 2)
+                                    pygame.draw.line(ui, (30, 30, 30), (cx, cy - 8), (right[0] - wr, right[1] - 2), 2)
+                                    pygame.draw.rect(ui, (50, 50, 50), pygame.Rect(cx - 8, cy - 12, 16, 6))
+                                except Exception:
+                                    pygame.draw.rect(ui, (80, 80, 120), preview_rect)
                             else:
                                 # draw brick preview using shared pattern renderer
                                 try:
@@ -1240,6 +1717,20 @@ class MakersGun:
                         pygame.draw.rect(surf, (30, 10, 10), pr)
                         inner = pr.inflate(-2, -2)
                         pygame.draw.rect(surf, (180, 30, 30), inner)
+                elif self.menu_selected == 'Bike':
+                    try:
+                        cx = pr.centerx
+                        cy = pr.centery
+                        wr = max(6, ps // 2)
+                        left = (cx - wr - 6, cy + 6)
+                        right = (cx + wr + 6, cy + 6)
+                        pygame.draw.circle(surf, (10, 10, 10), left, wr)
+                        pygame.draw.circle(surf, (10, 10, 10), right, wr)
+                        pygame.draw.line(surf, (30, 30, 30), (left[0] + wr, left[1] - 2), (cx, cy - 8), 2)
+                        pygame.draw.line(surf, (30, 30, 30), (cx, cy - 8), (right[0] - wr, right[1] - 2), 2)
+                        pygame.draw.rect(surf, (50, 50, 50), pygame.Rect(cx - 8, cy - 12, 16, 6))
+                    except Exception:
+                        pygame.draw.rect(surf, (80, 80, 120), pr)
                 elif self.menu_selected == 'Thruster' and self.thruster_icon is not None:
                     try:
                         img = pygame.transform.scale(self.thruster_icon, (ps, ps))

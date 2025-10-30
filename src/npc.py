@@ -93,6 +93,8 @@ class NPC :
         self.bleed_dps = 20.0
         self.last_hit_pos = None
         self.blood = BloodManager() if BloodManager is not None else None
+        # throttle blood pixel emission so large clumps don't form
+        self._bleed_emit_timer = 0.0
 
         # Standing / animation support
         # Store the rest local offsets relative to the torso center
@@ -212,15 +214,46 @@ class NPC :
 
                 # emit a few pixel blood particles near last hit
                 try:
+                    # Emit blood pixels at a throttled rate so they don't
+                    # accumulate into large circles on the floor. Emit only
+                    # occasionally while bleeding.
                     if getattr(self, 'blood', None) is not None and self.last_hit_pos is not None:
-                        for _ in range(3):
-                            ang = random.uniform(-math.pi, math.pi)
-                            spd = random.uniform(60, 220)
-                            vel = pygame.math.Vector2(math.cos(ang) * spd, math.sin(ang) * spd * 0.6)
+                        # decrease timer
+                        try:
+                            self._bleed_emit_timer -= dt
+                        except Exception:
+                            self._bleed_emit_timer = 0.0
+
+                        if self._bleed_emit_timer <= 0.0:
+                            # emit a small burst (1-2 pixels) and reset timer
+                            count = 1 if random.random() < 0.8 else 2
+                            for _ in range(count):
+                                ang = random.uniform(-math.pi, math.pi)
+                                spd = random.uniform(60, 140)  # lower speed for subtler spread
+                                vel = pygame.math.Vector2(math.cos(ang) * spd, math.sin(ang) * spd * 0.6)
+                                try:
+                                    self.blood.emit_pixel(self.last_hit_pos + pygame.math.Vector2(random.uniform(-3, 3), random.uniform(-3, 3)), vel, color=(160, 10, 10))
+                                except Exception:
+                                    continue
+                            # reset timer to emit again after 0.12-0.25s
                             try:
-                                self.blood.emit_pixel(self.last_hit_pos + pygame.math.Vector2(random.uniform(-4, 4), random.uniform(-4, 4)), vel, color=(160, 10, 10))
+                                self._bleed_emit_timer = random.uniform(0.12, 0.28)
                             except Exception:
-                                continue
+                                self._bleed_emit_timer = 0.2
+                except Exception:
+                    pass
+
+                # Update blood particles so emitted pixels animate and puddles form.
+                try:
+                    if getattr(self, 'blood', None) is not None:
+                        # pass the floor y so blood can settle into puddles
+                        try:
+                            self.blood.update(dt, floor_y=fy)
+                        except Exception:
+                            try:
+                                self.blood.update(dt)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
 
@@ -281,6 +314,14 @@ class NPC :
             pass
 
     def draw (self ,surf ):
+
+        # If the NPC is mounted inside a car, don't draw the body because
+        # the NPC should appear "in the car" (the car sprite will show).
+        try:
+            if getattr(self, 'mounted_car', None) is not None:
+                return
+        except Exception:
+            pass
 
         torso_indices =[0 ,1 ,2 ,3 ,4 ]
         outline_w =max (1 ,scaling .to_screen_length (self .size *2.0 ))
@@ -349,6 +390,13 @@ class NPC :
             eye_y =int (head_pos .y -hs *0.05 )
             eye_w =max (1 ,scaling .to_screen_length (4 ))
             pygame .draw .rect (surf ,(10 ,10 ,10 ),pygame .Rect (eye_x ,eye_y ,eye_w ,eye_w ))
+
+        # Draw blood effects (puddles / pixel particles) emitted by this NPC
+        try:
+            if getattr(self, 'blood', None) is not None:
+                self.blood.draw(surf)
+        except Exception:
+            pass
 
     def nearest_particle_index (self ,pos ,max_dist =40 ):
         best =None 

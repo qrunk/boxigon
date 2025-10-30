@@ -133,6 +133,20 @@ def main ():
                                             except Exception:
                                                 # fallback: create simple Brick if Thruster fails
                                                 makersgun.bricks.append(Brick((x, y), size=size))
+                                        elif t == 'bike':
+                                            try:
+                                                from src.vehicles.bike import Bike
+                                                b = Bike((x, y), size=size)
+                                                makersgun.bricks.append(b)
+                                            except Exception:
+                                                makersgun.bricks.append(Brick((x, y), size=size))
+                                        elif t == 'car':
+                                            try:
+                                                from src.vehicles.car import Car
+                                                c = Car((x, y), size=size)
+                                                makersgun.bricks.append(c)
+                                            except Exception:
+                                                makersgun.bricks.append(Brick((x, y), size=size))
                                         else:
                                             makersgun.bricks.append(Brick((x, y), size=size))
                                     except Exception:
@@ -149,6 +163,51 @@ def main ():
                     npc .update (dt ,floor_y =base )
                 fiddle .update (dt )
                 makersgun .update (dt ,npcs =npcs ,floor =base )
+
+                # Global drive input: if a possessed NPC is mounted on a bike,
+                # route A/D input to that bike so the player can drive it.
+                try:
+                    keys = pygame.key.get_pressed()
+                    vx = 0.0
+                    if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+                        vx -= 220.0
+                    if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+                        vx += 220.0
+
+                    if vx != 0.0:
+                        # Collect bikes that currently have riders mounted
+                        mounted_bikes = [b for b in makersgun.bricks if getattr(b, 'rider', None) is not None]
+
+                        # Prefer bikes whose rider has been explicitly possessed
+                        controlled = [n for n in npcs if getattr(n, 'possessed_controlled', False)]
+                        targets = []
+                        if controlled:
+                            targets = [b for b in mounted_bikes if b.rider in controlled]
+
+                        # If no possessed-controlled rider, and there's exactly one
+                        # mounted bike, drive that one (common single-player case).
+                        if not targets:
+                            if len(mounted_bikes) == 1:
+                                targets = mounted_bikes
+                            else:
+                                # Fallback: if there is exactly one NPC and it's mounted,
+                                # drive that NPC's bike.
+                                if len(npcs) == 1:
+                                    r = npcs[0]
+                                    mb = getattr(r, 'mounted_bike', None)
+                                    if mb is not None:
+                                        targets = [mb]
+
+                        for b in targets:
+                            try:
+                                if hasattr(b, 'drive'):
+                                    b.drive(vx, dt)
+                                else:
+                                    b.p.prev.x = b.p.pos.x - vx * dt
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
 
 
         # Update presence on transitions (menu <-> game). We only change the
@@ -352,6 +411,13 @@ def main ():
                                                 makersgun.bricks.append(thr)
                                             except Exception:
                                                 # fallback: create simple Brick if Thruster fails
+                                                makersgun.bricks.append(Brick((x, y), size=size))
+                                        elif t == 'bike':
+                                            try:
+                                                from src.vehicles.bike import Bike
+                                                b = Bike((x, y), size=size)
+                                                makersgun.bricks.append(b)
+                                            except Exception:
                                                 makersgun.bricks.append(Brick((x, y), size=size))
                                         else:
                                             makersgun.bricks.append(Brick((x, y), size=size))

@@ -129,23 +129,47 @@ class PossessionManager:
             except Exception:
                 pass
 
-            # apply horizontal translation to all particles (simple but effective)
-            if vx != 0.0:
-                # Apply a velocity to the torso (particle 2) so movement feels
-                # like controlling the body rather than teleporting every part.
+            # If the possessed NPC is mounted on a bike, route input to the
+            # bike so both NPC and bike move together. Otherwise fall back to
+            # the old per-particle translation behavior.
+            # Route input to mounted vehicles if present. Bikes are supported
+            # historically; add cars here so a possessed NPC can drive a car.
+            mounted_bike = getattr(self.possessed, 'mounted_bike', None)
+            mounted_car = getattr(self.possessed, 'mounted_car', None)
+
+            vehicle = None
+            if mounted_bike is not None:
+                vehicle = mounted_bike
+            elif mounted_car is not None:
+                vehicle = mounted_car
+
+            if vehicle is not None:
+                # update facing already done above; drive the vehicle
                 try:
-                    torso = self.possessed.particles[2]
-                    torso.prev.x = torso.pos.x - vx * dt
+                    if vx != 0.0:
+                        vehicle.drive(vx, dt)
                 except Exception:
-                    pass
-                # small positional nudges for other particles to keep up
-                try:
-                    for i, p in enumerate(self.possessed.particles):
-                        if i == 2:
-                            continue
-                        p.pos.x += vx * dt * 0.15
-                except Exception:
-                    pass
+                    # fallback to moving the NPC directly if drive fails
+                    vehicle = None
+
+            if mounted_bike is None:
+                # apply horizontal translation to all particles (simple but effective)
+                if vx != 0.0:
+                    # Apply a velocity to the torso (particle 2) so movement feels
+                    # like controlling the body rather than teleporting every part.
+                    try:
+                        torso = self.possessed.particles[2]
+                        torso.prev.x = torso.pos.x - vx * dt
+                    except Exception:
+                        pass
+                    # small positional nudges for other particles to keep up
+                    try:
+                        for i, p in enumerate(self.possessed.particles):
+                            if i == 2:
+                                continue
+                            p.pos.x += vx * dt * 0.15
+                    except Exception:
+                        pass
 
             # Keep the head straight above the torso while possessed.
             # Use the NPC's stored rest_local offset for the head but zero

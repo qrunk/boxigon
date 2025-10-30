@@ -1,16 +1,3 @@
-
-"""Simple Discord RPC wrapper using pypresence.
-
-This module provides a minimal, defensive wrapper around pypresence so the
-game can update a Rich Presence. If pypresence is not installed or the
-connection fails the code will fall back to logging to console instead of
-raising errors.
-
-Notes for the user:
-- Replace CLIENT_ID with your Discord application's numeric client id for
-  full functionality. The wrapper tolerates missing/invalid IDs and missing
-  dependency so it won't crash the game.
-"""
 from __future__ import annotations
 
 import threading

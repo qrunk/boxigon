@@ -1,4 +1,5 @@
 import math
+import os
 import random
 import pygame
 from src import scaling
@@ -92,16 +93,48 @@ class BloodParticle:
             return
         self.vel += pygame.math.Vector2(0, 1200) * dt
         self.pos += self.vel * dt
-        if floor_y is not None and self.pos.y >= floor_y:
-            self.pos.y = floor_y
-            self.grounded = True
-            self.radius *= 0.6
-            self.vel.y = 0
-            self.vel.x *= 0.3
+        # Grounding: only set grounded when the particle is contacting the floor
+        # and either moving downward (vel.y > 0) or is very close to the floor.
+        # This avoids particles becoming 'stuck' mid-air due to numeric or
+        # coordinate mismatches when spawned inside geometry.
+        # Prefer the provided floor_y (e.g. Baseplate.get_floor_y()). If not
+        # provided, fall back to the global design floor. This ensures blood
+        # falls to the bottom of the baseplate when available rather than to
+        # the entire window height.
+        try:
+            from src import scaling as _scaling
+            global_floor = getattr(_scaling, 'DESIGN_H', None)
+        except Exception:
+            global_floor = None
+
+        effective_floor = floor_y if floor_y is not None else global_floor
+
+        if effective_floor is not None and self.pos.y >= effective_floor:
+            # small tolerance to allow particles to pass near the floor when
+            # they are still moving upward
+            close_eps = 4.0
+            if self.vel.y > 0 or (self.pos.y - effective_floor) < close_eps:
+                self.pos.y = effective_floor
+                self.grounded = True
+                self.radius *= 0.6
+                # remove downward velocity and damp horizontal
+                self.vel.y = 0
+                self.vel.x *= 0.3
+                # debug
+                try:
+                    import os
+                    if os.environ.get('BOXIGON_DEBUG_BLOOD', '0') == '1':
+                        print(f"[BloodParticle.ground] pos={self.pos} vel={self.vel} floor={effective_floor}")
+                except Exception:
+                    pass
 
     def draw(self, surf):
         try:
             p = scaling.to_screen_vec(self.pos)
+            # don't draw grounded pixels (they form puddles) to avoid
+            # large visible clusters composed of many small rects
+            if self.grounded:
+                return
             if not self.pixel:
                 return
             size = max(1, int(scaling.to_screen_length(self.radius * 2.0)))
@@ -120,6 +153,7 @@ class Puddle:
         self.amount += amt
 
     def draw(self, surf):
+        # intentionally do not draw large puddle circles (visuals removed)
         return
 
 
@@ -127,6 +161,11 @@ class BloodManager:
     def __init__(self):
         self.particles = []
         self.puddles = []
+        # debug flag (set env BOXIGON_DEBUG_BLOOD=1 to enable)
+        try:
+            self._debug = bool(int(os.environ.get('BOXIGON_DEBUG_BLOOD', '0')))
+        except Exception:
+            self._debug = False
 
     def emit(self, pos, vel):
         self.particles.append(BloodParticle(pos, vel, pixel=True))
@@ -139,8 +178,19 @@ class BloodManager:
             target_pos = pygame.math.Vector2(pos)
         except Exception:
             target_pos = pygame.math.Vector2(pos)
+        # default to global design floor to ensure puddles appear on the
+        # main ground surface rather than on intermediate objects
+        try:
+            from src import scaling as _scaling
+            if floor_y is None:
+                floor_y = getattr(_scaling, 'DESIGN_H', floor_y)
+        except Exception:
+            pass
+
         if floor_y is not None and target_pos.y < floor_y:
             target_pos.y = floor_y
+        if self._debug:
+            print(f"[BloodManager.splash] pos={pos} -> target_pos={target_pos} floor_y={floor_y} amount={amount}")
         if not self.puddles:
             self.puddles.append(Puddle(target_pos))
         else:
@@ -165,6 +215,8 @@ class BloodManager:
                     self.particles.remove(bp)
                 except Exception:
                     pass
+        if self._debug:
+            print(f"[BloodManager.update] particles={len(self.particles)} puddles={len(self.puddles)}")
 
     def draw(self, surf):
         for p in self.puddles:

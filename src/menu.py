@@ -303,29 +303,62 @@ class Menu:
 
     def draw(self, surf):
         """Draw the menu to the provided actual-screen surface."""
-        # Design surface
+        # Design surface (UI-only): keep transparent background and draw
+        # menu text/controls there. The background (grid + floor) is drawn
+        # directly to the target surface so it always fills the whole window.
         s = self._design_surf
-        s.fill((10, 18, 12))
+        # transparent clear
+        s.fill((0, 0, 0, 0))
 
-        # Draw a central slightly different rect and grid (like background)
-        center_rect = pygame.Rect(self.design_w * 0.05, self.design_h * 0.1, self.design_w * 0.9, self.design_h * 0.7)
-        pygame.draw.rect(s, (6, 10, 8), center_rect)
+        # --- draw full-window background using the menu's current zoom ---
+        aw = surf.get_width()
+        ah = surf.get_height()
+        base_scale = scaling.get_scale()
+        combined = base_scale * self.zoom
 
+        # size of the scaled design area and its top-left on the actual surface
+        sw = max(1, int(round(self.design_w * combined)))
+        sh = max(1, int(round(self.design_h * combined)))
+        bg_ox = (aw - sw) // 2
+        bg_oy = (ah - sh) // 2
+
+        # Fill background base color
+        surf.fill((10, 18, 12))
+
+        # Slightly different center rect mapped to screen coords
+        center_rect = pygame.Rect(
+            int(round(self.design_w * 0.05 * combined + bg_ox)),
+            int(round(self.design_h * 0.1 * combined + bg_oy)),
+            int(round(self.design_w * 0.9 * combined)),
+            int(round(self.design_h * 0.7 * combined)),
+        )
+        pygame.draw.rect(surf, (6, 10, 8), center_rect)
+
+        # Grid drawn across the visible screen using scaled spacing
         grid_color = (38, 180, 85)
         g = 40
-        x = 0
-        while x <= int(self.design_w) + g:
-            pygame.draw.line(s, grid_color, (x, 0), (x, int(self.design_h)), 1)
-            x += g
-        y = 0
-        while y <= int(self.design_h) + g:
-            pygame.draw.line(s, grid_color, (0, y), (int(self.design_w), y), 1)
-            y += g
+        grid_px = max(1, int(round(g * combined)))
 
-        # Draw a baseplate-like floor
+        # vertical lines: start from bg_ox and expand both directions to cover the screen
+        x = bg_ox
+        while x > 0:
+            x -= grid_px
+        while x <= aw:
+            pygame.draw.line(surf, grid_color, (int(x), 0), (int(x), ah), 1)
+            x += grid_px
+
+        # horizontal lines
+        y = bg_oy
+        while y > 0:
+            y -= grid_px
+        while y <= ah:
+            pygame.draw.line(surf, grid_color, (0, int(y)), (aw, int(y)), 1)
+            y += grid_px
+
+        # floor that spans full width and reaches bottom of screen; top mapped from design coords
         floor_y = int(self.design_h * 0.75)
-        floor_rect = pygame.Rect(0, floor_y, self.design_w, self.design_h - floor_y)
-        pygame.draw.rect(s, (80, 80, 90), floor_rect)
+        top_y = int(round(floor_y * combined + bg_oy))
+        pygame.draw.rect(surf, (80, 80, 90), pygame.Rect(0, top_y, aw, max(0, ah - top_y)))
 
         # Draw options or create UI on design surface with slide offset applied
         ox = int(self._slide_x)
@@ -402,8 +435,8 @@ class Menu:
                     # white underline for selected option
                     pygame.draw.rect(s, (255, 255, 255), underline_rect)
 
-        # Scale the design surface to screen with additional zoom
-        # Compute combined scale (base scale * zoom)
+        # Scale the design surface (UI-only) and blit on top of the already
+        # drawn full-window background.
         base_scale = scaling.get_scale()
         combined = base_scale * self.zoom
         sw = max(1, int(round(self.design_w * combined)))
@@ -413,13 +446,12 @@ class Menu:
         except Exception:
             scaled = pygame.transform.scale(s, (sw, sh))
 
-        # Center scaled surface on screen
+        # Center scaled UI surface on screen (same origin used for background)
         aw = surf.get_width()
         ah = surf.get_height()
         ox = (aw - sw) // 2
         oy = (ah - sh) // 2
 
-        surf.fill((10, 18, 12))
         surf.blit(scaled, (ox, oy))
 
         # Slight full-screen tint to darken the background subtly for
