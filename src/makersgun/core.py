@@ -1,4 +1,5 @@
 import os
+import random
 import pygame
 from src import scaling
 from src.npc import NPC
@@ -96,6 +97,159 @@ class MakersGun:
         self.menu_anim_speed = 6.0
         # small hover progress variable (used to modulate hover lift)
         self._hover_progress = 0.0
+        # vehicle preview colors chosen when the spawn menu is opened
+        # keys are vehicle names (e.g. 'Car', 'Bike') -> RGB tuples
+        self._preview_vehicle_colors = {}
+
+    def _draw_vehicle_icon(self, surface, rect, scale_factor=1.0, color=(30, 30, 30)):
+        """Draw a simple generic vehicle icon (wheels + body) into `rect`.
+
+        This is a vector fallback so both Bike and Car can share an identical
+        icon without requiring external image assets.
+        """
+        try:
+            cx = rect.centerx
+            cy = rect.centery
+            # wheel radius scales with rect size
+            wr = max(4, int((min(rect.w, rect.h) * 0.25) * scale_factor))
+            # positions for left and right wheels
+            left = (int(cx - wr - max(6, int(6 * scale_factor))), int(cy + max(4, int(4 * scale_factor))))
+            right = (int(cx + wr + max(6, int(6 * scale_factor))), int(cy + max(4, int(4 * scale_factor))))
+            # draw wheels
+            pygame.draw.circle(surface, (10, 10, 10), left, wr)
+            pygame.draw.circle(surface, (10, 10, 10), right, wr)
+            # draw body (simple chassis)
+            body_w = max(8, int(rect.w * 0.45 * scale_factor))
+            body_h = max(4, int(rect.h * 0.18 * scale_factor))
+            body_rect = pygame.Rect(0, 0, body_w, body_h)
+            body_rect.center = (cx, cy - max(6, int(6 * scale_factor)))
+            pygame.draw.rect(surface, color, body_rect, border_radius=max(2, int(2 * scale_factor)))
+            # small cabin/roof
+            roof_w = max(6, int(body_w * 0.5))
+            roof_h = max(3, int(body_h * 0.8))
+            roof_rect = pygame.Rect(0, 0, roof_w, roof_h)
+            roof_rect.center = (cx, cy - max(10, int(10 * scale_factor)))
+            pygame.draw.rect(surface, (50, 50, 50), roof_rect, border_radius=max(1, int(1 * scale_factor)))
+        except Exception:
+            try:
+                pygame.draw.rect(surface, (80, 80, 120), rect)
+            except Exception:
+                pass
+
+    def _render_vehicle_preview(self, surface, rect, name):
+        """Render an accurate vehicle preview (Bike/Car) into `rect`.
+
+        Approach: instantiate the vehicle class with a world-space size roughly
+        matching a baseline, then temporarily patch `scaling.to_screen_vec` and
+        `scaling.to_screen_length` so the vehicle's own `draw()` method maps
+        world coordinates into the `rect` area. This avoids duplicating the
+        procedural drawing logic and produces a close visual match.
+        """
+        try:
+            # choose class and baseline world size
+            if name == 'Bike':
+                try:
+                    from src.vehicles.bike import Bike
+                except Exception:
+                    Bike = None
+                VClass = Bike
+                world_size = 96.0
+            elif name == 'Car':
+                try:
+                    from src.vehicles.car import Car
+                except Exception:
+                    Car = None
+                VClass = Car
+                world_size = 220.0
+            else:
+                VClass = None
+
+            if VClass is None:
+                # fallback to generic icon
+                self._draw_vehicle_icon(surface, rect)
+                return
+
+            # instantiate vehicle centered at origin (0,0)
+            preview_color = self._preview_vehicle_colors.get(name)
+            if preview_color is not None:
+                try:
+                    v = VClass((0.0, 0.0), size=world_size, color=preview_color)
+                except TypeError:
+                    # fallback if the class does not accept color kwarg
+                    v = VClass((0.0, 0.0), size=world_size)
+            else:
+                v = VClass((0.0, 0.0), size=world_size)
+
+            # compute a simple scale mapping world->rect pixels
+            # we want world_size -> roughly min(rect.w, rect.h) * 0.8
+            target_px = min(rect.w, rect.h) * 0.8
+            scale = (target_px / float(world_size)) if world_size > 0 else 1.0
+
+            # Save original scaling helpers
+            import src.scaling as _scaling
+            orig_to_screen_vec = getattr(_scaling, 'to_screen_vec', None)
+            orig_to_screen_length = getattr(_scaling, 'to_screen_length', None)
+            orig_to_screen = getattr(_scaling, 'to_screen', None)
+
+            # local mapping: world vec (x,y) -> preview rect local pixel coords
+            def _to_screen_vec_local(vec):
+                try:
+                    # vec may be Vector2-like
+                    x = float(vec.x) if hasattr(vec, 'x') else float(vec[0])
+                    y = float(vec.y) if hasattr(vec, 'y') else float(vec[1])
+                    cx = rect.centerx
+                    cy = rect.centery
+                    sx = cx + x * scale
+                    sy = cy + y * scale
+                    return _scaling.Vector2(sx, sy) if hasattr(_scaling, 'Vector2') else (int(round(sx)), int(round(sy)))
+                except Exception:
+                    return _scaling.Vector2(rect.centerx, rect.centery)
+
+            def _to_screen_length_local(length):
+                try:
+                    return int(round(length * scale))
+                except Exception:
+                    return int(round(length))
+
+            def _to_screen_local(pos):
+                try:
+                    x = float(pos[0])
+                    y = float(pos[1])
+                    cx = rect.centerx
+                    cy = rect.centery
+                    sx = int(round(cx + x * scale))
+                    sy = int(round(cy + y * scale))
+                    return (sx, sy)
+                except Exception:
+                    return (rect.centerx, rect.centery)
+
+            # Patch scaling functions
+            try:
+                _scaling.to_screen_vec = _to_screen_vec_local
+                _scaling.to_screen_length = _to_screen_length_local
+                _scaling.to_screen = _to_screen_local
+
+                # draw vehicle onto the target surface (vehicle draw uses scaling helpers)
+                v.draw(surface)
+            except Exception:
+                # fallback to the simpler icon on failure
+                self._draw_vehicle_icon(surface, rect)
+            finally:
+                # restore original functions
+                try:
+                    if orig_to_screen_vec is not None:
+                        _scaling.to_screen_vec = orig_to_screen_vec
+                    if orig_to_screen_length is not None:
+                        _scaling.to_screen_length = orig_to_screen_length
+                    if orig_to_screen is not None:
+                        _scaling.to_screen = orig_to_screen
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                self._draw_vehicle_icon(surface, rect)
+            except Exception:
+                pass
 
     def pickup_welding_tool(self):
         if self.welding_tool:
@@ -363,6 +517,15 @@ class MakersGun:
                 pygame.mouse.set_visible(True)
             except Exception:
                 pass
+
+        # choose stable preview colors for vehicles when the menu opens
+        try:
+            # pick a car color once per menu-open so it doesn't flash each frame
+            self._preview_vehicle_colors['Car'] = random.choice([(180, 30, 30), (30, 120, 200)])
+            # bike uses its default blue by default, but allow overriding if desired
+            self._preview_vehicle_colors.setdefault('Bike', (30, 120, 200))
+        except Exception:
+            pass
 
         if self.ak47:
             try:
@@ -1530,22 +1693,13 @@ class MakersGun:
                                 ui.blit(pygame.transform.scale(self.axe_icon, (preview_size, preview_size)), preview_rect)
                             elif name == 'Thruster' and self.thruster_icon is not None:
                                 ui.blit(pygame.transform.scale(self.thruster_icon, (preview_size, preview_size)), preview_rect)
-                            elif name == 'Car':
-                                # prefer makersgun-local icon, fall back to vehicle asset
-                                icon = self.car_icon
-                                if icon is None:
+                            elif name in ('Car', 'Bike'):
+                                # Render an accurate vehicle preview using the vehicle's own draw()
+                                try:
+                                    self._render_vehicle_preview(ui, preview_rect, name)
+                                except Exception:
                                     try:
-                                        from src.vehicles.car import Car
-                                        # try to load vehicle sprite directly from vehicles assets
-                                        vpath = os.path.join(os.path.dirname(__file__), '..', 'vehicles', 'assets', 'car.png')
-                                        vpath = os.path.normpath(vpath)
-                                        if os.path.exists(vpath):
-                                            icon = pygame.image.load(vpath).convert_alpha()
-                                    except Exception:
-                                        icon = None
-                                if icon is not None:
-                                    try:
-                                        ui.blit(pygame.transform.scale(icon, (preview_size, preview_size)), preview_rect)
+                                        pygame.draw.rect(ui, (80, 80, 120), preview_rect)
                                     except Exception:
                                         pass
                             elif name == 'NPC':
@@ -1622,13 +1776,7 @@ class MakersGun:
                         lbl = label_font.render(name, True, (220, 220, 220))
                         ui.blit(lbl, (inner_rect.x + (inner_rect.w - lbl.get_width()) // 2, inner_rect.y + preview_size + 12))
 
-                    # hint
-                    try:
-                        hint_font = pygame.font.SysFont('Segoe UI', max(11, scaling.to_screen_length(12)))
-                    except Exception:
-                        hint_font = pygame.font.SysFont('Arial', max(11, scaling.to_screen_length(12)))
-                    hint = hint_font.render('Left-click to select. After selection: Right-click to spawn repeatedly. Q/Esc to close.', True, (170, 170, 170))
-                    ui.blit(hint, (24, menu_h - 36))
+                    # hint: removed per UX request (do not show key hints like Q/Esc)
                 except Exception:
                     pass
 
@@ -1717,18 +1865,10 @@ class MakersGun:
                         pygame.draw.rect(surf, (30, 10, 10), pr)
                         inner = pr.inflate(-2, -2)
                         pygame.draw.rect(surf, (180, 30, 30), inner)
-                elif self.menu_selected == 'Bike':
+                elif self.menu_selected in ('Bike', 'Car'):
                     try:
-                        cx = pr.centerx
-                        cy = pr.centery
-                        wr = max(6, ps // 2)
-                        left = (cx - wr - 6, cy + 6)
-                        right = (cx + wr + 6, cy + 6)
-                        pygame.draw.circle(surf, (10, 10, 10), left, wr)
-                        pygame.draw.circle(surf, (10, 10, 10), right, wr)
-                        pygame.draw.line(surf, (30, 30, 30), (left[0] + wr, left[1] - 2), (cx, cy - 8), 2)
-                        pygame.draw.line(surf, (30, 30, 30), (cx, cy - 8), (right[0] - wr, right[1] - 2), 2)
-                        pygame.draw.rect(surf, (50, 50, 50), pygame.Rect(cx - 8, cy - 12, 16, 6))
+                        # render a vehicle preview that matches the in-world drawing
+                        self._render_vehicle_preview(surf, pr, self.menu_selected)
                     except Exception:
                         pygame.draw.rect(surf, (80, 80, 120), pr)
                 elif self.menu_selected == 'Thruster' and self.thruster_icon is not None:
